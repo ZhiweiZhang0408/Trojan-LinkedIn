@@ -241,3 +241,74 @@ def get_ai_review(request_id: int, user: User = Depends(require_alumni), db: Ses
     if not run:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No AI review yet")
     return _review_out(run, cached=True)
+
+
+# ---------- Frontend contract (frontend/src/useBoard.ts: tailor() and review()) ----------
+# Thin wrappers over the endpoints above, shaped exactly as the frontend expects.
+
+class FrontendTailorBody(BaseModel):
+    resumeId: int
+    jobId: int
+
+
+class FrontendSuggestion(BaseModel):
+    original: str
+    suggested: str
+    reason: str
+
+
+class FrontendReviewBody(BaseModel):
+    requestId: int
+
+
+class FrontendEvidence(BaseModel):
+    requirement: str
+    status: str  # "found" | "partial" | "missing"
+    evidence: str
+
+
+class FrontendReview(BaseModel):
+    summary: str
+    evidence: list[FrontendEvidence]
+    questions: list[str]
+
+
+_STATUS = {"evidence_found": "found", "partial_evidence": "partial", "information_missing": "missing"}
+
+
+@router.post("/ai/resume-tailoring", response_model=list[FrontendSuggestion])
+def frontend_tailor(body: FrontendTailorBody, user: User = Depends(require_student), db: Session = Depends(get_db)):
+    """Only text replacements that pass the code checks, since the frontend applies them by
+    replacing `original` in the resume text."""
+    run = tailor_for_role(body.resumeId, TailorRequest(job_id=body.jobId), user, db)
+    resume = db.get(Resume, body.resumeId)
+    out = []
+    for s in run.suggestions:
+        if s.action != "replace" or not s.original.strip():
+            continue
+        _, results = apply_suggestions(resume.content, [s.model_dump()], [0])
+        if results[0]["applied"]:
+            out.append(FrontendSuggestion(original=s.original, suggested=s.suggested,
+                                          reason=f"{s.reason} (For: {s.requirement})"))
+    return out
+
+
+@router.post("/ai/request-review", response_model=FrontendReview)
+def frontend_review(body: FrontendReviewBody, user: User = Depends(require_alumni), db: Session = Depends(get_db)):
+    run = ai_review(body.requestId, False, user, db)
+    questions: list[str] = []
+    for q in [*run.follow_up_questions, *(f.follow_up_question for f in run.requirements)]:
+        if q and q not in questions:
+            questions.append(q)
+    return FrontendReview(
+        summary=run.summary,
+        evidence=[
+            FrontendEvidence(
+                requirement=f.requirement,
+                status=_STATUS[f.status],
+                evidence=" · ".join(f'"{e}"' for e in f.evidence) or f.explanation,
+            )
+            for f in run.requirements
+        ],
+        questions=questions[:5],
+    )

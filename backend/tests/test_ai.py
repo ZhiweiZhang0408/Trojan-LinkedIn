@@ -151,3 +151,31 @@ def test_ai_failure_keeps_manual_flow(monkeypatch):
         assert c.post(f"/resumes/{base['id']}/versions", headers=stu, json={"job_id": job_id}).status_code == 201
         assert c.post(f"/jobs/{job_id}/requests", headers=stu,
                       json={"note": "hi", "resume_id": base["id"]}).status_code == 201
+
+
+def test_frontend_contract(monkeypatch):
+    monkeypatch.setattr(ai_review, "_call_model",
+                        lambda system, user, schema: TAILOR if schema is TailorOutput else REVIEW)
+    with TestClient(app) as c:
+        stu = register(c, "fe.stu@usc.edu", "student")
+        alum = register(c, "fe.alum@alumni.usc.edu", "alumni")
+        job_id = c.post("/jobs", headers=alum, json={"company": "Nimbus", "role_title": "Backend Intern",
+                                                      "description": "x", "requirements": "Go"}).json()["id"]
+        base = c.post("/resumes", headers=stu, json={"content": RESUME}).json()
+
+        # frontend sends string ids in camelCase
+        r = c.post("/ai/resume-tailoring", headers=stu, json={"resumeId": str(base["id"]), "jobId": str(job_id)})
+        assert r.status_code == 200, r.text
+        sugg = r.json()
+        # only the valid text replacement survives (mismatch, new number, add_skill are filtered)
+        assert [s["original"] for s in sugg] == ["Helped with database maintenance"]
+        assert set(sugg[0]) == {"original", "suggested", "reason"}
+
+        req_id = c.post(f"/jobs/{job_id}/requests", headers=stu,
+                        json={"note": "hi there", "resume_id": base["id"]}).json()["id"]
+        r = c.post("/ai/request-review", headers=alum, json={"requestId": str(req_id)})
+        assert r.status_code == 200, r.text
+        rev = r.json()
+        assert [e["status"] for e in rev["evidence"]] == ["found", "partial", "missing"]
+        assert rev["evidence"][0]["evidence"].startswith('"Raft-based')
+        assert rev["questions"] and len(rev["questions"]) <= 5
