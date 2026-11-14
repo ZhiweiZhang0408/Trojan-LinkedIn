@@ -1,0 +1,32 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Length 1131 >>
+stream
+BT /F1 10 Tf 14 TL 50 760 Td (Alex Kim) Tj T* (Los Angeles, CA | alex.kim@usc.edu | \(213\) 555-0142 | linkedin.com/in/alex-kim-demo | github.com/alexkim-demo) Tj T* (EDUCATION) Tj T* (University of Southern California    Aug 2023 – May 2027) Tj T* (B.S. Computer Science, GPA: 3.7/4.0) Tj T* (• Coursework: Operating Systems, Distributed Systems, Databases) Tj T* (EXPERIENCE) Tj T* (USC Viterbi IT    Los Angeles, CA) Tj T* (Student Developer    Sep 2024 – Present) Tj T* (• Built a Python service that syncs lab reservations for 1,200 students) Tj T* (• Cut nightly job runtime from 40 to 12 minutes by batching database writes) Tj T* (Trojan Robotics Club) Tj T* (Software Lead    Jan 2024 – Aug 2024) Tj T* (• Led a team of 5 building ROS navigation for a campus delivery robot) Tj T* (PROJECTS) Tj T* (Toy Distributed KV Store | github.com/alexkim-demo/kv    Jan 2025 – Apr 2025) Tj T* (• Raft-based replication in Go across 5 nodes) Tj T* (• Wrote a fault-injection test harness that found 3 leader-election bugs) Tj T* (SKILLS) Tj T* (Languages: Go, Python, Java, SQL) Tj T* (Tools: Docker, Linux, Git, PostgreSQL) Tj T* ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000338 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1521
+%%EOF

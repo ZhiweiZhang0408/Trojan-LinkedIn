@@ -2,18 +2,30 @@
 
 Resumes are private to their owner. Alumni only ever see the snapshot stored on a
 job request, never the live resume.
-Upload + PDF/DOCX extraction (creates a draft) is added in a later step.
+Upload route: POST /resumes/upload creates a draft from a PDF/DOCX; the student reviews it
+and calls POST /resumes/{id}/confirm. Existing resumes are untouched until then.
 """
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..config import ALLOWED_RESUME_EXTS, MAX_RESUME_BYTES, UPLOAD_DIR
 from ..database import get_db
 from ..models import JobPost, Resume, ResumeStatus, User
-from ..schemas import ResumeConfirm, ResumeCreate, ResumeOut, ResumeUpdate, ResumeVersionCreate
+from ..resume_import import ResumeReadError, extract_text, organize_text, sniff_type
+from ..schemas import (
+    ResumeConfirm,
+    ResumeCreate,
+    ResumeImportOut,
+    ResumeOut,
+    ResumeUpdate,
+    ResumeVersionCreate,
+)
 from ..security import require_student
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
@@ -40,6 +52,52 @@ def create_resume(body: ResumeCreate, user: User = Depends(require_student), db:
     db.commit()
     db.refresh(resume)
     return resume
+
+
+@router.post("/upload", response_model=ResumeImportOut, status_code=status.HTTP_201_CREATED)
+async def upload_resume(
+    file: UploadFile = File(..., description="PDF or DOCX, up to 5 MB"),
+    user: User = Depends(require_student),
+    db: Session = Depends(get_db),
+):
+    """Upload route: read the file and return a draft with extracted fields for review.
+
+    On a read error nothing is saved (422 with a message the frontend can show next to
+    "Try another file" / "Fill in manually").
+    """
+    filename = Path(file.filename or "resume").name
+    ext = Path(filename).suffix.lower()
+    if ext not in ALLOWED_RESUME_EXTS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Resume must be a PDF or DOCX file")
+    data = await file.read(MAX_RESUME_BYTES + 1)
+    if len(data) > MAX_RESUME_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Resume must be 5 MB or smaller")
+
+    try:
+        kind = sniff_type(data, ext)
+        # Parsing and the AI call are blocking; keep them off the event loop
+        text = await run_in_threadpool(extract_text, data, kind)
+    except ResumeReadError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    content, parser = await run_in_threadpool(organize_text, text)
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    stored = UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
+    stored.write_bytes(data)
+
+    resume = Resume(
+        owner_id=user.id,
+        label=f"Imported: {filename}"[:120],
+        content=content.model_dump(),
+        status=ResumeStatus.draft,
+        source_text=text,
+        original_file_path=str(stored),
+        original_filename=filename,
+    )
+    db.add(resume)
+    db.commit()
+    db.refresh(resume)
+    return ResumeImportOut(**ResumeOut.model_validate(resume).model_dump(), parser=parser)
 
 
 @router.get("/mine", response_model=list[ResumeOut])

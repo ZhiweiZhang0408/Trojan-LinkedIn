@@ -183,3 +183,61 @@ def test_full_flow():
         c.patch(f"/job-requests/{q_req}/status", headers=alum, json={"status": "declined"})
         assert c.post(f"/job-requests/{q_req}/messages", headers=stu2, json={"body": "hi"}).status_code == 400
         assert c.patch(f"/job-requests/{q_req}/status", headers=alum, json={"status": "pending"}).status_code == 400
+
+
+def test_resume_upload():
+    from pathlib import Path
+
+    from scripts.make_sample_resumes import make_pdf
+
+    samples = Path(__file__).resolve().parent.parent / "samples"
+    with TestClient(app) as c:
+        stu = register(c, "upload.stu@usc.edu", "student")
+        other = register(c, "upload.other@usc.edu", "student")
+        alum = register(c, "upload.alum@alumni.usc.edu", "alumni")
+        base = c.post("/resumes", json={"content": RESUME}, headers=stu).json()
+
+        for name, mime in [("alex_kim_resume.pdf", "application/pdf"),
+                           ("alex_kim_resume.docx",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document")]:
+            r = c.post("/resumes/upload", headers=stu, files={"file": (name, (samples / name).read_bytes(), mime)})
+            assert r.status_code == 201, r.text
+            draft = r.json()
+            assert draft["status"] == "draft" and draft["parser"] == "rules"
+            assert draft["has_original_file"] and draft["original_filename"] == name
+            assert "Raft-based replication" in draft["source_text"]
+            content = draft["content"]
+            assert content["contact"]["email"] == "alex.kim@usc.edu"
+            assert content["education"][0]["school"] == "University of Southern California"
+            assert content["experience"][0]["company"] == "USC Viterbi IT"
+            assert "Go" in content["skills"]
+
+        # existing base resume is untouched until confirmation
+        assert c.get(f"/resumes/{base['id']}", headers=stu).json()["content"]["contact"]["name"] == "Stu"
+
+        # student corrects a field and confirms
+        content["contact"]["phone"] = "(213) 555-9999"
+        r = c.post(f"/resumes/{draft['id']}/confirm", headers=stu, json={"label": "Base resume", "content": content})
+        assert r.json()["status"] == "confirmed" and r.json()["content"]["contact"]["phone"] == "(213) 555-9999"
+
+        # original file: owner only
+        assert c.get(f"/resumes/{draft['id']}/file", headers=stu).status_code == 200
+        assert c.get(f"/resumes/{draft['id']}/file", headers=other).status_code == 404
+
+        # share the original with a request -> the alum can download it as an attachment
+        job_id = c.post("/jobs", headers=alum, json={"company": "Acme", "role_title": "SWE",
+                                                      "description": "x"}).json()["id"]
+        r = c.post(f"/jobs/{job_id}/requests", headers=stu,
+                   json={"note": "hi", "resume_id": draft["id"], "share_original_file": True})
+        assert r.json()["has_attachment"] and r.json()["attachment_filename"] == "alex_kim_resume.docx"
+        assert c.get(f"/job-requests/{r.json()['id']}/attachment", headers=alum).content.startswith(b"PK")
+
+        # rejected files: wrong type, renamed file, image-only PDF; nothing is saved
+        count = len(c.get("/resumes/mine", headers=stu).json())
+        assert c.post("/resumes/upload", headers=stu, files={"file": ("cv.doc", b"x", "application/msword")}).status_code == 400
+        assert c.post("/resumes/upload", headers=stu, files={"file": ("cv.pdf", b"PK\x03\x04zip", "application/pdf")}).status_code == 422
+        r = c.post("/resumes/upload", headers=stu, files={"file": ("scan.pdf", make_pdf([]), "application/pdf")})
+        assert r.status_code == 422 and "No readable text" in r.json()["detail"]
+        assert len(c.get("/resumes/mine", headers=stu).json()) == count
+        assert c.post("/resumes/upload", headers=alum,
+                      files={"file": ("a.pdf", make_pdf(), "application/pdf")}).status_code == 403

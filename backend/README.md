@@ -62,6 +62,7 @@ Afterwards: POST /auth/login (email + password); unverified accounts get 403 {"d
 | POST | `/jobs/{id}/close` | poster | stop new requests; existing threads stay open |
 | POST | `/jobs/{id}/reopen` | poster | reopen |
 | DELETE | `/jobs/{id}` | poster | delete |
+| POST | `/resumes/upload` | student | multipart `file` (PDF/DOCX ≤5MB) → draft with extracted fields + `source_text` + `parser` (`ai`/`rules`); unreadable file → 422, nothing saved |
 | POST | `/resumes` | student | manual entry → confirmed base resume (`confirm=false` for a draft) |
 | GET | `/resumes/mine` | student | all my versions (base: `parent_id=null`) |
 | GET / PATCH / DELETE | `/resumes/{id}` | owner | read / edit / delete a version |
@@ -88,6 +89,11 @@ Resume content shape (shared by manual entry, import, tailoring, and AI review �
 }
 ```
 
+Resume import: text is extracted with pypdf (PDF) or python-docx (DOCX, including tables), then organized by
+`app/ai_service.organize_resume()` (Backend B). Until that returns a result, a rule-based parser in
+`app/resume_import.py` fills what it can detect. Sample files for the demo: `samples/alex_kim_resume.pdf` and
+`.docx` (regenerate with `python scripts/make_sample_resumes.py`).
+
 ## Statuses & rules
 
 - Job: `open` / `closed`; past the `deadline` → `is_expired=true`, hidden by default. `accepts_new_requests` tells the frontend whether to show the request buttons
@@ -104,7 +110,8 @@ After every `git pull`, run `.venv/bin/python -m app.seed` and everyone's local 
 
 | Module | Files the owner edits |
 |---|---|
-| Auth + Job Post + Referral | `app/models.py`, `app/routers/{auth,jobs,resumes,requests}.py`, `app/seeds/core.py` |
+| Backend A | `app/models.py`, `app/routers/{auth,jobs,resumes,requests}.py`, `app/resume_import.py`, `app/seeds/core.py` |
+| Backend B (AI) | `app/ai_service.py` |
 | Connections | `app/models_connections.py`, `app/routers/connections.py`, `app/seeds/connections.py` |
 | Persona | `app/models_persona.py`, `app/routers/persona.py`, `app/seeds/persona.py` |
 

@@ -16,7 +16,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", BASE_DIR / "uploads"))
 MAX_RESUME_BYTES = 5 * 1024 * 1024
-ALLOWED_RESUME_EXTS = {".pdf", ".doc", ".docx"}
+ALLOWED_RESUME_EXTS = {".pdf", ".docx"}
 
 # Students must sign up with a USC email. Alumni may use any email; is_usc_verified is set only
 # when the email is verified AND belongs to a USC domain.

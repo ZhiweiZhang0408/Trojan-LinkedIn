@@ -259,8 +259,15 @@ class ResumeOut(BaseModel):
     is_tailored: bool
     has_original_file: bool
     original_filename: str | None
+    source_text: str | None  # full extracted text of an upload, for the review screen
     created_at: datetime
     updated_at: datetime
+
+
+class ResumeImportOut(ResumeOut):
+    """Result of POST /resumes/upload: a draft to review, then POST /resumes/{id}/confirm."""
+
+    parser: Literal["ai", "rules"]  # which organizer produced the draft fields
 
 
 # ---------- Job requests & messages ----------
