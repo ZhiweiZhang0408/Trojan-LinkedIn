@@ -1,15 +1,8 @@
-import os
-import tempfile
 from datetime import date, timedelta
 
-_tmp = tempfile.mkdtemp()
-os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
-os.environ["UPLOAD_DIR"] = f"{_tmp}/uploads"
-os.environ["EMAIL_BACKEND"] = "console"
+from fastapi.testclient import TestClient
 
-from fastapi.testclient import TestClient  # noqa: E402
-
-from app.main import app  # noqa: E402
+from app.main import app
 
 
 def register(c, email, role, **kw):
@@ -95,7 +88,7 @@ def test_full_flow():
         assert c.get("/auth/me").status_code == 401
 
         # students cannot post jobs; alumni can
-        job = {"company": "Acme", "role_title": "SWE Intern", "industry": "Technology",
+        job = {"company": "FlowCo", "role_title": "SWE Intern", "industry": "Technology",
                "location": "Los Angeles, CA", "description": "Build things",
                "requirements": "Go, distributed systems",
                "application_instructions": "Apply online, then send me your app ID",
@@ -110,10 +103,10 @@ def test_full_flow():
                         headers=alum).json()["id"]
 
         # search & filters (requirements are searchable)
-        assert c.get("/jobs", params={"q": "swe"}).json()["total"] == 1
-        assert c.get("/jobs", params={"q": "distributed"}).json()["total"] == 2
+        assert c.get("/jobs", params={"q": "swe", "company": "FlowCo"}).json()["total"] == 1
+        assert c.get("/jobs", params={"q": "distributed", "company": "FlowCo"}).json()["total"] == 2
         assert c.get("/jobs", params={"company": "other"}).json()["total"] == 0
-        assert c.get("/jobs", params={"referral_available": True}).json()["total"] == 1
+        assert c.get("/jobs", params={"referral_available": True, "company": "FlowCo"}).json()["total"] == 1
 
         # resumes: manual entry -> confirmed base; drafts can't be sent
         base = c.post("/resumes", json={"content": RESUME}, headers=stu).json()
@@ -126,7 +119,7 @@ def test_full_flow():
         tailored_content = {**RESUME, "summary": "Go engineer focused on storage"}
         tailored = c.post(f"/resumes/{base['id']}/versions", headers=stu,
                           json={"job_id": job_id, "content": tailored_content}).json()
-        assert tailored["parent_id"] == base["id"] and tailored["label"] == "Acme — SWE Intern"
+        assert tailored["parent_id"] == base["id"] and tailored["label"] == "FlowCo — SWE Intern"
         assert c.get(f"/resumes/{base['id']}", headers=stu).json()["content"]["summary"] is None
 
         # request validation

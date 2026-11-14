@@ -265,3 +265,29 @@ class EmailVerification(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     attempts: Mapped[int] = mapped_column(default=0)
     sent_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class AIResult(Base):
+    """Stored AI output, tied to the exact input it analyzed.
+
+    kind="tailor": resume_id + job_id; kind="review": job_request_id (its frozen snapshot).
+    input_hash lets us reuse a result when nothing changed instead of calling the model again.
+    """
+
+    __tablename__ = "ai_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), index=True)
+    resume_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resumes.id", ondelete="CASCADE"), index=True, default=None
+    )
+    job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("job_posts.id", ondelete="CASCADE"), default=None
+    )
+    job_request_id: Mapped[int | None] = mapped_column(
+        ForeignKey("job_requests.id", ondelete="CASCADE"), index=True, default=None
+    )
+    input_hash: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(60))
+    output: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -76,6 +76,10 @@ Afterwards: POST /auth/login (email + password); unverified accounts get 403 {"d
 | POST | `/job-requests/{id}/messages` | either party | `{body}` reply; returns the whole thread |
 | PATCH | `/job-requests/{id}/status` | the role's alum | `{status: pending\|interested\|declined}` |
 | GET | `/job-requests/{id}/attachment` | either party | original file, only if the student shared it |
+| POST | `/resumes/{id}/tailor` | owner | `{job_id, refresh?}` → AI edit suggestions (`original`/`suggested`/`reason`), `emphasize`, `missing_info_questions`. Cached per resume content + job |
+| POST | `/resumes/{id}/tailor/{run_id}/apply` | owner | `{accepted: [indexes], label?}` → new tailored version + per-suggestion `results` (applied / why skipped) |
+| POST | `/job-requests/{id}/ai-review` | the role's alum | `?refresh=` → `summary`, per-requirement `status` (`evidence_found` / `partial_evidence` / `information_missing`) with verbatim `evidence`, `follow_up_questions`. Uses the submitted snapshot; cached |
+| GET | `/job-requests/{id}/ai-review` | the role's alum | latest stored review (404 if none) |
 
 Resume content shape (shared by manual entry, import, tailoring, and AI review — see `ResumeContent` in `app/schemas.py`):
 ```json
@@ -94,6 +98,13 @@ Resume import: text is extracted with pypdf (PDF) or python-docx (DOCX, includin
 `app/resume_import.py` fills what it can detect. Sample files for the demo: `samples/alex_kim_resume.pdf` and
 `.docx` (regenerate with `python scripts/make_sample_resumes.py`).
 
+AI (tailoring + alumni review, `app/ai_review.py`): Claude via structured outputs, model `AI_MODEL`
+(default `claude-opus-5-5`), effort `AI_EFFORT` (default `medium`), with server-side refusal fallback enabled.
+Set `ANTHROPIC_API_KEY` in `.env`; without it these endpoints return 503 and nothing else breaks.
+Outputs are checked in code before use: a suggestion is applied only if its `original` still matches the resume
+and it adds no number or skill the resume doesn't contain; review excerpts not found verbatim in the submitted
+resume are removed, and an `evidence_found` left without evidence is downgraded to `partial_evidence`.
+
 ## Statuses & rules
 
 - Job: `open` / `closed`; past the `deadline` → `is_expired=true`, hidden by default. `accepts_new_requests` tells the frontend whether to show the request buttons
@@ -110,8 +121,8 @@ After every `git pull`, run `.venv/bin/python -m app.seed` and everyone's local 
 
 | Module | Files the owner edits |
 |---|---|
-| Backend A | `app/models.py`, `app/routers/{auth,jobs,resumes,requests}.py`, `app/resume_import.py`, `app/seeds/core.py` |
-| Backend B (AI) | `app/ai_service.py` |
+| Backend A | `app/models.py`, `app/routers/{auth,jobs,resumes,requests,ai}.py`, `app/ai_review.py`, `app/seeds/core.py` |
+| Backend B | resume upload: `app/resume_import.py`, `app/ai_service.py` (AI organizer) |
 | Connections | `app/models_connections.py`, `app/routers/connections.py`, `app/seeds/connections.py` |
 | Persona | `app/models_persona.py`, `app/routers/persona.py`, `app/seeds/persona.py` |
 

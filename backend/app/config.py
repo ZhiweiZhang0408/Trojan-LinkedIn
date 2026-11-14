@@ -36,6 +36,12 @@ VERIFICATION_CODE_TTL_MINUTES = 10
 RESEND_COOLDOWN_SECONDS = 60
 MAX_CODE_ATTEMPTS = 5
 
+# ---- AI (tailoring + alumni review) ----
+# Credentials come from ANTHROPIC_API_KEY (or an `ant auth login` profile); never hardcode a key.
+AI_MODEL = os.getenv("AI_MODEL", "claude-opus-5-5")
+AI_EFFORT = os.getenv("AI_EFFORT", "medium")  # low | medium | high; medium keeps button clicks responsive
+AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "90"))
+
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 
 REFERRAL_DISCLAIMER = (
