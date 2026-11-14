@@ -6,7 +6,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from ..models import JobPost, JobStatus, JobType, ReferralRequest, RequestStatus, Role, User, WorkMode
+from ..models import JobPost, JobRequest, JobStatus, JobType, Role, User, WorkMode
 from ..schemas import JobCreate, JobList, JobOut, JobUpdate
 from ..security import get_current_user_optional, require_alumni
 
@@ -27,15 +27,9 @@ def _get_owned_job(db: Session, job_id: int, user: User) -> JobPost:
     return job
 
 
-def _close_pending_requests(job: JobPost) -> None:
-    for r in job.referral_requests:
-        if r.status == RequestStatus.pending:
-            r.status = RequestStatus.closed
-
-
 @router.get("", response_model=JobList)
 def list_jobs(
-    q: str | None = Query(None, description="Keyword: matches company / role / team / description"),
+    q: str | None = Query(None, description="Keyword: matches company / role / team / requirements / description"),
     company: str | None = None,
     industry: str | None = None,
     location: str | None = None,
@@ -57,6 +51,7 @@ def list_jobs(
                 JobPost.company.ilike(like),
                 JobPost.role_title.ilike(like),
                 JobPost.team.ilike(like),
+                JobPost.requirements.ilike(like),
                 JobPost.description.ilike(like),
             )
         )
@@ -85,7 +80,7 @@ def list_jobs(
         stmt = stmt.order_by(JobPost.created_at.desc(), JobPost.id.desc())
 
     stmt = stmt.options(
-        selectinload(JobPost.alumni), selectinload(JobPost.referral_requests)
+        selectinload(JobPost.alumni), selectinload(JobPost.requests)
     ).limit(limit).offset(offset)
     return JobList(total=total, items=db.scalars(stmt).all())
 
@@ -97,7 +92,7 @@ def my_posts(user: User = Depends(require_alumni), db: Session = Depends(get_db)
         select(JobPost)
         .where(JobPost.alumni_id == user.id)
         .order_by(JobPost.created_at.desc(), JobPost.id.desc())
-        .options(selectinload(JobPost.alumni), selectinload(JobPost.referral_requests))
+        .options(selectinload(JobPost.alumni), selectinload(JobPost.requests))
     )
     return db.scalars(stmt).all()
 
@@ -112,9 +107,7 @@ def get_job(
     out = JobOut.model_validate(job)
     if user and user.role == Role.student:
         req = db.scalar(
-            select(ReferralRequest).where(
-                ReferralRequest.job_id == job_id, ReferralRequest.student_id == user.id
-            )
+            select(JobRequest).where(JobRequest.job_id == job_id, JobRequest.student_id == user.id)
         )
         if req:
             out.my_request_status = req.status
@@ -138,23 +131,16 @@ def update_job(
     job = _get_owned_job(db, job_id, user)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(job, field, value)
-    if job.status != JobStatus.open:
-        _close_pending_requests(job)
     db.commit()
     db.refresh(job)
     return job
 
 
 @router.post("/{job_id}/close", response_model=JobOut)
-def close_job(
-    job_id: int,
-    filled: bool = Query(True, description="true = role filled, false = just closed"),
-    user: User = Depends(require_alumni),
-    db: Session = Depends(get_db),
-):
+def close_job(job_id: int, user: User = Depends(require_alumni), db: Session = Depends(get_db)):
+    """Stop accepting new requests. Existing threads stay open and readable."""
     job = _get_owned_job(db, job_id, user)
-    job.status = JobStatus.filled if filled else JobStatus.closed
-    _close_pending_requests(job)
+    job.status = JobStatus.closed
     db.commit()
     db.refresh(job)
     return job

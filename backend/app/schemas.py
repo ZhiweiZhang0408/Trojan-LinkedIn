@@ -4,7 +4,15 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from .config import REFERRAL_DISCLAIMER, USC_EMAIL_DOMAINS
-from .models import JobStatus, JobType, RequestStatus, Role, WorkMode
+from .models import (
+    JobStatus,
+    JobType,
+    RequestKind,
+    RequestStatus,
+    ResumeStatus,
+    Role,
+    WorkMode,
+)
 
 
 def is_usc_email(email: str) -> bool:
@@ -93,9 +101,10 @@ class JobBase(BaseModel):
     requirements: str | None = None
     eligibility: str | None = None
     application_link: str | None = None
+    application_instructions: str | None = None
     deadline: date | None = None
+    # True = "Open to referral requests", False = "Role questions only"
     referral_available: bool = True
-    referral_slots: int | None = Field(default=None, ge=0)
     referral_notes: str | None = None
 
 
@@ -119,9 +128,9 @@ class JobUpdate(BaseModel):
     requirements: str | None = None
     eligibility: str | None = None
     application_link: str | None = None
+    application_instructions: str | None = None
     deadline: date | None = None
     referral_available: bool | None = None
-    referral_slots: int | None = Field(default=None, ge=0)
     referral_notes: str | None = None
     status: JobStatus | None = None
 
@@ -132,13 +141,14 @@ class JobOut(JobBase):
     id: int
     status: JobStatus
     is_expired: bool
+    accepts_new_requests: bool
     request_count: int
-    accepted_count: int
+    interested_count: int
     created_at: datetime
     updated_at: datetime
     alumni: UserPublic
     referral_disclaimer: str = REFERRAL_DISCLAIMER
-    # Only for a logged-in student: their request status for this job (None if they haven't requested)
+    # Only for a logged-in student: their thread for this job (None if they haven't sent one)
     my_request_status: RequestStatus | None = None
     my_request_id: int | None = None
 
@@ -156,26 +166,151 @@ class JobBrief(BaseModel):
     role_title: str
     status: JobStatus
     is_expired: bool
+    alumni_id: int
 
 
-# ---------- Referral requests ----------
+# ---------- Resume content (shared contract with Backend B / AI features) ----------
+# Every field is optional so imports can leave unsupported fields empty.
 
-class ReferralRequestOut(BaseModel):
+class ContactInfo(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    location: str | None = None
+    linkedin: str | None = None
+    website: str | None = None
+
+
+class EducationItem(BaseModel):
+    school: str | None = None
+    degree: str | None = None
+    major: str | None = None
+    start: str | None = None  # free text, e.g. "Aug 2023"
+    end: str | None = None  # e.g. "May 2027" or "Present"
+    gpa: str | None = None
+    details: list[str] = []
+
+
+class ExperienceItem(BaseModel):
+    company: str | None = None
+    title: str | None = None
+    location: str | None = None
+    start: str | None = None
+    end: str | None = None
+    bullets: list[str] = []
+
+
+class ProjectItem(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    link: str | None = None
+    start: str | None = None
+    end: str | None = None
+    bullets: list[str] = []
+
+
+class ResumeContent(BaseModel):
+    contact: ContactInfo = ContactInfo()
+    summary: str | None = None
+    education: list[EducationItem] = []
+    experience: list[ExperienceItem] = []
+    projects: list[ProjectItem] = []
+    skills: list[str] = []
+
+
+class ResumeCreate(BaseModel):
+    """Manual entry route: saved as confirmed right away unless confirm=False."""
+
+    label: str = Field(default="Base resume", max_length=120)
+    content: ResumeContent
+    confirm: bool = True
+
+
+class ResumeUpdate(BaseModel):
+    label: str | None = Field(default=None, max_length=120)
+    content: ResumeContent | None = None
+
+
+class ResumeConfirm(BaseModel):
+    """Confirm and Save: optionally send the student's final edits in the same call."""
+
+    label: str | None = Field(default=None, max_length=120)
+    content: ResumeContent | None = None
+
+
+class ResumeVersionCreate(BaseModel):
+    """Save a job-specific (tailored) version from a confirmed resume."""
+
+    job_id: int | None = None
+    label: str | None = Field(default=None, max_length=120)
+    content: ResumeContent | None = None  # omit to start from an exact copy of the parent
+
+
+class ResumeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    owner_id: int
+    label: str
+    content: ResumeContent
+    status: ResumeStatus
+    parent_id: int | None
+    job_id: int | None
+    is_tailored: bool
+    has_original_file: bool
+    original_filename: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---------- Job requests & messages ----------
+
+class JobRequestCreate(BaseModel):
+    kind: RequestKind = RequestKind.referral
+    note: str = Field(min_length=1, max_length=2000)  # the introduction
+    resume_id: int | None = None  # required for referral requests
+    share_original_file: bool = False  # also attach the original upload, clearly labeled
+
+    @model_validator(mode="after")
+    def referral_needs_resume(self):
+        if self.kind == RequestKind.referral and self.resume_id is None:
+            raise ValueError("A referral request must include a confirmed resume (resume_id)")
+        if self.share_original_file and self.resume_id is None:
+            raise ValueError("share_original_file requires resume_id")
+        return self
+
+
+class MessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class MessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sender: UserPublic
+    body: str
+    created_at: datetime
+
+
+class JobRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     job: JobBrief
     student: UserPublic
+    kind: RequestKind
     note: str
-    profile_link: str | None
-    has_resume: bool
-    resume_filename: str | None
+    resume_id: int | None
+    resume_snapshot: ResumeContent | None  # exactly what was submitted
+    has_attachment: bool
+    attachment_filename: str | None
     status: RequestStatus
-    alumni_response: str | None
+    is_read_only: bool
+    messages: list[MessageOut]
     created_at: datetime
     updated_at: datetime
 
 
-class ReferralDecision(BaseModel):
-    status: Literal["accepted", "declined"]
-    alumni_response: str | None = Field(default=None, max_length=2000)
+class JobRequestStatusUpdate(BaseModel):
+    status: Literal["pending", "interested", "declined"]

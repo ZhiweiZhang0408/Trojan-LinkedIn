@@ -56,34 +56,45 @@ Afterwards: POST /auth/login (email + password); unverified accounts get 403 {"d
 | GET | `/auth/me` | logged in | current user |
 | GET | `/jobs` | anyone | list + filters: `q, company, industry, location, job_type, work_mode, referral_available, include_closed, include_expired, sort=newest\|deadline, limit, offset` |
 | GET | `/jobs/{id}` | anyone | detail; a logged-in student also gets `my_request_status` |
-| GET | `/jobs/mine` | alumni | my posts (with `request_count` / `accepted_count`) |
-| POST | `/jobs` | alumni | create a post |
+| GET | `/jobs/mine` | alumni | My Posts (with `request_count` / `interested_count`) |
+| POST | `/jobs` | alumni | create a post (`referral_available=false` = "Role questions only") |
 | PATCH | `/jobs/{id}` | poster | edit |
-| POST | `/jobs/{id}/close?filled=true` | poster | close (pending requests become `closed`) |
+| POST | `/jobs/{id}/close` | poster | stop new requests; existing threads stay open |
 | POST | `/jobs/{id}/reopen` | poster | reopen |
 | DELETE | `/jobs/{id}` | poster | delete |
-| POST | `/jobs/{id}/referral-requests` | student | **multipart/form-data**: `note` (≥20 chars), `profile_link`, `resume` (pdf/doc/docx ≤5MB) |
-| GET | `/referral-requests/sent` | student | requests I sent |
-| GET | `/referral-requests/received?job_id=&status_filter=` | alumni | inbox of received requests |
-| GET | `/referral-requests/{id}` | either party | detail |
-| PATCH | `/referral-requests/{id}/decision` | poster | `{status: accepted\|declined, alumni_response}` |
-| POST | `/referral-requests/{id}/withdraw` | student | withdraw a pending request |
-| GET | `/referral-requests/{id}/resume` | either party | download the resume |
+| POST | `/resumes` | student | manual entry → confirmed base resume (`confirm=false` for a draft) |
+| GET | `/resumes/mine` | student | all my versions (base: `parent_id=null`) |
+| GET / PATCH / DELETE | `/resumes/{id}` | owner | read / edit / delete a version |
+| POST | `/resumes/{id}/confirm` | owner | Confirm and Save (optionally with final edits) |
+| POST | `/resumes/{id}/versions` | owner | save a tailored version `{job_id, content}`; base untouched |
+| GET | `/resumes/{id}/file` | owner | original uploaded file |
+| POST | `/jobs/{id}/requests` | student | `{kind: referral\|question, note, resume_id, share_original_file}` |
+| GET | `/job-requests/sent` | student | Profile → Job Requests |
+| GET | `/job-requests/received?job_id=&status_filter=` | alumni | inbox, oldest first |
+| GET | `/job-requests/{id}` | either party | thread: snapshot + messages |
+| POST | `/job-requests/{id}/messages` | either party | `{body}` reply; returns the whole thread |
+| PATCH | `/job-requests/{id}/status` | the role's alum | `{status: pending\|interested\|declined}` |
+| GET | `/job-requests/{id}/attachment` | either party | original file, only if the student shared it |
 
-Frontend resume upload example:
-```js
-const fd = new FormData();
-fd.append("note", note);
-fd.append("resume", fileInput.files[0]);
-await fetch(`${API}/jobs/${id}/referral-requests`, {
-  method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,
-});
+Resume content shape (shared by manual entry, import, tailoring, and AI review — see `ResumeContent` in `app/schemas.py`):
+```json
+{
+  "contact": {"name": "", "email": "", "phone": "", "location": "", "linkedin": "", "website": ""},
+  "summary": "",
+  "education":  [{"school": "", "degree": "", "major": "", "start": "", "end": "", "gpa": "", "details": []}],
+  "experience": [{"company": "", "title": "", "location": "", "start": "", "end": "", "bullets": []}],
+  "projects":   [{"name": "", "role": "", "link": "", "start": "", "end": "", "bullets": []}],
+  "skills": []
+}
 ```
 
-## Statuses
+## Statuses & rules
 
-- Job: `open` → `filled` / `closed`; past the `deadline` it becomes `is_expired=true` and is hidden from the default listing
-- Referral request: `pending` → `accepted` / `declined` / `withdrawn` / `closed`
+- Job: `open` / `closed`; past the `deadline` → `is_expired=true`, hidden by default. `accepts_new_requests` tells the frontend whether to show the request buttons
+- Job request: `pending` → `interested` / `declined`. A follow-up question can stay `pending`. `declined` is read-only
+- One thread per student + role. Closing a role keeps existing threads (replies still work)
+- Referral requests need a **confirmed** resume; questions don't. On send, the resume content is frozen into `resume_snapshot` — later edits never change what the alum sees
+- Resume: `draft` → `confirmed`. Tailored versions have `parent_id` = base; the base is never modified
 - Every job response includes `referral_disclaimer` ("a referral is not a guarantee of an interview or offer") — just display it
 
 ## Database & ownership
@@ -93,7 +104,7 @@ After every `git pull`, run `.venv/bin/python -m app.seed` and everyone's local 
 
 | Module | Files the owner edits |
 |---|---|
-| Auth + Job Post + Referral | `app/models.py`, `app/routers/{auth,jobs,referrals}.py`, `app/seeds/core.py` |
+| Auth + Job Post + Referral | `app/models.py`, `app/routers/{auth,jobs,resumes,requests}.py`, `app/seeds/core.py` |
 | Connections | `app/models_connections.py`, `app/routers/connections.py`, `app/seeds/connections.py` |
 | Persona | `app/models_persona.py`, `app/routers/persona.py`, `app/seeds/persona.py` |
 

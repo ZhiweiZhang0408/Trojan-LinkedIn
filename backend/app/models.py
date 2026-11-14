@@ -1,7 +1,9 @@
 import enum
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Date,
     DateTime,
@@ -17,6 +19,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 
+def _enum(cls: type[enum.Enum]) -> Enum:
+    # Store enums as VARCHAR so adding a value never needs a DB-level type change
+    return Enum(cls, native_enum=False, length=20)
+
+
 class Role(str, enum.Enum):
     student = "student"
     alumni = "alumni"
@@ -25,7 +32,6 @@ class Role(str, enum.Enum):
 class JobStatus(str, enum.Enum):
     open = "open"
     closed = "closed"
-    filled = "filled"
 
 
 class JobType(str, enum.Enum):
@@ -41,12 +47,20 @@ class WorkMode(str, enum.Enum):
     hybrid = "hybrid"
 
 
+class RequestKind(str, enum.Enum):
+    referral = "referral"  # "Request Referral": requires a confirmed resume
+    question = "question"  # "Ask a Question": resume optional
+
+
 class RequestStatus(str, enum.Enum):
     pending = "pending"
-    accepted = "accepted"
-    declined = "declined"
-    withdrawn = "withdrawn"
-    closed = "closed"  # pending requests are auto-closed when the job is closed
+    interested = "interested"  # alum is willing to discuss next steps
+    declined = "declined"  # thread becomes read-only
+
+
+class ResumeStatus(str, enum.Enum):
+    draft = "draft"  # e.g. an import awaiting the student's review
+    confirmed = "confirmed"  # usable for tailoring and requests
 
 
 class User(Base):
@@ -56,13 +70,13 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[str] = mapped_column(String(120))
-    role: Mapped[Role] = mapped_column(Enum(Role, native_enum=False, length=20))
+    role: Mapped[Role] = mapped_column(_enum(Role))
     # is_email_verified: user proved ownership of the email via verification code
     # is_usc_verified:   email verified AND on a USC domain (frontend shows a "Verified Trojan" badge)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_usc_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # Basic profile fields (the persona module owns the full profile)
+    # Basic profile fields (the full profile lives in the profile module)
     grad_year: Mapped[int | None] = mapped_column(default=None)
     major: Mapped[str | None] = mapped_column(String(120), default=None)
     company: Mapped[str | None] = mapped_column(String(120), default=None)
@@ -72,7 +86,8 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     job_posts: Mapped[list["JobPost"]] = relationship(back_populates="alumni")
-    sent_requests: Mapped[list["ReferralRequest"]] = relationship(back_populates="student")
+    sent_requests: Mapped[list["JobRequest"]] = relationship(back_populates="student")
+    resumes: Mapped[list["Resume"]] = relationship(back_populates="owner")
 
 
 class JobPost(Base):
@@ -86,27 +101,30 @@ class JobPost(Base):
     team: Mapped[str | None] = mapped_column(String(160), default=None)
     industry: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
     location: Mapped[str | None] = mapped_column(String(120), index=True, default=None)
-    work_mode: Mapped[WorkMode] = mapped_column(Enum(WorkMode, native_enum=False, length=20), default=WorkMode.onsite)
-    job_type: Mapped[JobType] = mapped_column(Enum(JobType, native_enum=False, length=20), default=JobType.full_time)
+    work_mode: Mapped[WorkMode] = mapped_column(_enum(WorkMode), default=WorkMode.onsite)
+    job_type: Mapped[JobType] = mapped_column(_enum(JobType), default=JobType.full_time)
 
     description: Mapped[str] = mapped_column(Text)
     requirements: Mapped[str | None] = mapped_column(Text, default=None)
     eligibility: Mapped[str | None] = mapped_column(Text, default=None)
     application_link: Mapped[str | None] = mapped_column(String(500), default=None)
+    # Official application steps (e.g. "Apply on the careers site first, then send me the req ID")
+    application_instructions: Mapped[str | None] = mapped_column(Text, default=None)
     deadline: Mapped[date | None] = mapped_column(Date, default=None)
 
+    # True  = "Open to referral requests" (Request Referral + Ask a Question)
+    # False = "Role questions only"       (Ask a Question only)
     referral_available: Mapped[bool] = mapped_column(Boolean, default=True)
-    referral_slots: Mapped[int | None] = mapped_column(default=None)
     referral_notes: Mapped[str | None] = mapped_column(Text, default=None)
 
-    status: Mapped[JobStatus] = mapped_column(Enum(JobStatus, native_enum=False, length=20), default=JobStatus.open)
+    status: Mapped[JobStatus] = mapped_column(_enum(JobStatus), default=JobStatus.open)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
     alumni: Mapped[User] = relationship(back_populates="job_posts")
-    referral_requests: Mapped[list["ReferralRequest"]] = relationship(
+    requests: Mapped[list["JobRequest"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
 
@@ -115,43 +133,125 @@ class JobPost(Base):
         return self.deadline is not None and self.deadline < date.today()
 
     @property
-    def request_count(self) -> int:
-        return len(self.referral_requests)
+    def accepts_new_requests(self) -> bool:
+        return self.status == JobStatus.open and not self.is_expired
 
     @property
-    def accepted_count(self) -> int:
-        return sum(1 for r in self.referral_requests if r.status == RequestStatus.accepted)
+    def request_count(self) -> int:
+        return len(self.requests)
+
+    @property
+    def interested_count(self) -> int:
+        return sum(1 for r in self.requests if r.status == RequestStatus.interested)
 
 
-class ReferralRequest(Base):
-    __tablename__ = "referral_requests"
-    __table_args__ = (UniqueConstraint("job_id", "student_id", name="uq_job_student"),)
+class Resume(Base):
+    """One row per resume version.
+
+    - Base resume: parent_id is None (from manual entry or a confirmed import)
+    - Tailored version: parent_id points to the base, job_id to the target role
+    Editing a tailored version never changes its base; sent requests keep their own snapshot.
+    """
+
+    __tablename__ = "resumes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    job_id: Mapped[int] = mapped_column(ForeignKey("job_posts.id"), index=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    label: Mapped[str] = mapped_column(String(120), default="Base resume")
+    # Structured sections; shape defined by schemas.ResumeContent (shared with Backend B / AI)
+    content: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[ResumeStatus] = mapped_column(_enum(ResumeStatus), default=ResumeStatus.draft)
 
-    note: Mapped[str] = mapped_column(Text)
-    profile_link: Mapped[str | None] = mapped_column(String(500), default=None)
-    resume_path: Mapped[str | None] = mapped_column(String(500), default=None)
-    resume_filename: Mapped[str | None] = mapped_column(String(255), default=None)
-
-    status: Mapped[RequestStatus] = mapped_column(
-        Enum(RequestStatus, native_enum=False, length=20), default=RequestStatus.pending
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("resumes.id"), default=None)
+    job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("job_posts.id", ondelete="SET NULL"), default=None
     )
-    alumni_response: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # Present only when created from an upload; the file is private to its owner
+    source_text: Mapped[str | None] = mapped_column(Text, default=None)
+    original_file_path: Mapped[str | None] = mapped_column(String(500), default=None)
+    original_filename: Mapped[str | None] = mapped_column(String(255), default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
-    job: Mapped[JobPost] = relationship(back_populates="referral_requests")
-    student: Mapped[User] = relationship(back_populates="sent_requests")
+    owner: Mapped[User] = relationship(back_populates="resumes")
 
     @property
-    def has_resume(self) -> bool:
-        return self.resume_path is not None
+    def is_tailored(self) -> bool:
+        return self.parent_id is not None
+
+    @property
+    def has_original_file(self) -> bool:
+        return self.original_file_path is not None
+
+
+class JobRequest(Base):
+    """One thread per student + role: the first request plus all follow-up messages."""
+
+    __tablename__ = "job_requests"
+    __table_args__ = (UniqueConstraint("job_id", "student_id", name="uq_job_student"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job_posts.id"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+
+    kind: Mapped[RequestKind] = mapped_column(_enum(RequestKind), default=RequestKind.referral)
+    note: Mapped[str] = mapped_column(Text)  # the student's introduction
+
+    # Which version was selected, plus a frozen copy of its content at submission time.
+    # The snapshot is what the alum (and alumni AI review) sees; later edits don't change it.
+    resume_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resumes.id", ondelete="SET NULL"), default=None
+    )
+    resume_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+
+    # Original uploaded file, only if the student explicitly chose to share it
+    attachment_path: Mapped[str | None] = mapped_column(String(500), default=None)
+    attachment_filename: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    status: Mapped[RequestStatus] = mapped_column(
+        _enum(RequestStatus), default=RequestStatus.pending
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    job: Mapped[JobPost] = relationship(back_populates="requests")
+    student: Mapped[User] = relationship(back_populates="sent_requests")
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="job_request",
+        cascade="all, delete-orphan",
+        order_by="(Message.created_at, Message.id)",
+    )
+
+    @property
+    def has_attachment(self) -> bool:
+        return self.attachment_path is not None
+
+    @property
+    def is_read_only(self) -> bool:
+        return self.status == RequestStatus.declined
+
+
+class Message(Base):
+    """A text reply inside a job request thread."""
+
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_request_id: Mapped[int] = mapped_column(
+        ForeignKey("job_requests.id", ondelete="CASCADE"), index=True
+    )
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    job_request: Mapped[JobRequest] = relationship(back_populates="messages")
+    sender: Mapped[User] = relationship()
 
 
 class EmailVerification(Base):

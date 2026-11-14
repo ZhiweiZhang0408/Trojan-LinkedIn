@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import CORS_ORIGINS, UPLOAD_DIR
 from . import models_connections, models_persona  # noqa: F401  register tables
 from .database import Base, engine
-from .routers import auth, connections, jobs, persona, referrals
+from .routers import auth, connections, jobs, persona, requests, resumes
 
 
 @asynccontextmanager
@@ -33,7 +33,8 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(jobs.router)
-app.include_router(referrals.router)
+app.include_router(resumes.router)
+app.include_router(requests.router)
 app.include_router(connections.router)  # connections teammate
 app.include_router(persona.router)  # persona teammate
 
