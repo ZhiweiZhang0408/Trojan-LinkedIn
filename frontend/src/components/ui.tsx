@@ -1,9 +1,13 @@
 import {
+  createContext,
+  useContext,
   useEffect,
   useRef,
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
+
+export const PaneContext = createContext(false);
 import {
   ArrowUpRight,
   X,
@@ -39,7 +43,7 @@ export function Avatar({
   size = "md",
 }: {
   person?: Pick<Person, "name" | "color">;
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: "xs" | "sm" | "md" | "lg" | "xl";
 }) {
   return (
     <span
@@ -119,6 +123,50 @@ export function Dialog({
   onClose: () => void;
   wide?: boolean;
 }) {
+  const inline = useContext(PaneContext);
+  if (inline)
+    return (
+      <section className="pane" aria-labelledby="pane-title">
+        <header className="pane-header">
+          <div>
+            <h2 id="pane-title">{title}</h2>
+            {description && <p>{description}</p>}
+          </div>
+          <button
+            className="icon-button"
+            aria-label="Close panel"
+            onClick={onClose}
+          >
+            <X size={19} />
+          </button>
+        </header>
+        {children}
+      </section>
+    );
+  return (
+    <ModalDialog
+      title={title}
+      description={description}
+      onClose={onClose}
+      wide={wide}
+    >
+      {children}
+    </ModalDialog>
+  );
+}
+function ModalDialog({
+  title,
+  description,
+  children,
+  onClose,
+  wide,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  onClose: () => void;
+  wide: boolean;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const d = ref.current!;
@@ -162,11 +210,18 @@ export function Dialog({
     </dialog>
   );
 }
-export function ErrorBox({ message }: { message: string }) {
+export function ErrorBox({
+  message,
+  children,
+}: {
+  message: string;
+  children?: ReactNode;
+}) {
   return (
     <div className="error-box" role="alert">
       <CircleAlert size={17} />
       <span>{message}</span>
+      {children}
     </div>
   );
 }
@@ -209,5 +264,47 @@ export function Field({
       {children}
       {hint && <small>{hint}</small>}
     </label>
+  );
+}
+export function Split({
+  list,
+  pane,
+  paneKey,
+  empty,
+  className = "",
+}: {
+  list: ReactNode;
+  pane: ReactNode;
+  paneKey?: string;
+  empty?: ReactNode;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollTo({ top: 0 });
+    if (pane && window.matchMedia("(max-width: 900px)").matches)
+      window.scrollTo({ top: 0 });
+  }, [paneKey, pane]);
+  return (
+    <div className={`split ${pane ? "has-pane" : ""} ${className}`}>
+      <div className="split-list">{list}</div>
+      <div className="split-pane" ref={ref}>
+        {pane || empty}
+      </div>
+    </div>
+  );
+}
+export function PaneEmpty({
+  icon,
+  title,
+}: {
+  icon: ReactNode;
+  title: string;
+}) {
+  return (
+    <div className="pane-empty">
+      <span className="empty-icon">{icon}</span>
+      <p>{title}</p>
+    </div>
   );
 }

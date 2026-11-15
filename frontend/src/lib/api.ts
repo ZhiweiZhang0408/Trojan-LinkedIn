@@ -8,6 +8,22 @@ import type {
 } from "../types";
 import { resumeText, type ResumeContent } from "./resumeContent";
 
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+export interface AuthResponse {
+  access_token: string;
+  user: RawUser;
+}
+export interface CodeResponse {
+  email: string;
+  dev_code?: string | null;
+}
 export class ApiClient {
   constructor(private settings: Settings) {}
   async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -21,12 +37,13 @@ export class ApiClient {
       res = await fetch(this.settings.apiUrl.replace(/\/$/, "") + path, {
         ...options,
         headers,
-        signal: AbortSignal.timeout(30000),
+        signal: options.signal
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(30000)])
+          : AbortSignal.timeout(30000),
       });
-    } catch {
-      throw new Error(
-        "Could not reach the backend. Check that it is running and the API URL allows this frontend origin.",
-      );
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      throw new Error("Unable to connect. Try again in a moment.");
     }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -36,7 +53,7 @@ export class ApiClient {
           : Array.isArray(data.detail)
             ? data.detail.map((d: { msg: string }) => d.msg).join("; ")
             : `Request failed (${res.status}).`;
-      throw new Error(detail);
+      throw new ApiError(res.status, detail);
     }
     if (res.status === 204) return undefined as T;
     const ct = res.headers.get("content-type") || "";
@@ -94,6 +111,18 @@ export interface RawRequest {
   messages: { id: number; sender: RawUser; body: string; created_at: string }[];
   created_at: string;
 }
+export interface RawTailorRun {
+  id: number;
+  suggestions: {
+    action: "replace" | "add_bullet" | "add_skill";
+    original: string;
+    suggested: string;
+    requirement: string;
+    reason: string;
+  }[];
+  emphasize: string[];
+  missing_info_questions: string[];
+}
 export interface RawResume {
   id: number;
   owner_id: number;
@@ -103,6 +132,7 @@ export interface RawResume {
   job_id: number | null;
   has_original_file: boolean;
   original_filename: string | null;
+  source_text?: string | null;
   created_at: string;
 }
 export function mapResume(raw: RawResume): Resume {
@@ -113,7 +143,7 @@ export function mapResume(raw: RawResume): Resume {
     label: raw.label,
     content: raw.content,
     text,
-    sourceText: text,
+    sourceText: raw.source_text || text,
     jobId: raw.job_id == null ? undefined : String(raw.job_id),
     fileName: raw.has_original_file
       ? raw.original_filename || "Resume"

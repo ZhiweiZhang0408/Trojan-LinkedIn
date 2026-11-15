@@ -10,11 +10,14 @@ import type {
   Resume,
   Review,
   Settings,
-  Suggestion,
+  TailorResult,
 } from "./types";
 import { loadState, saveState } from "./lib/storage";
 import {
   ApiClient,
+  ApiError,
+  type AuthResponse,
+  type CodeResponse,
   jobBody,
   mapJob,
   mapResume,
@@ -23,11 +26,21 @@ import {
   type RawJob,
   type RawRequest,
   type RawResume,
+  type RawTailorRun,
   type RawUser,
 } from "./lib/api";
 import { errorText, profileResume, uid } from "./lib/utils";
-import { resumeContent, splitResume } from "./lib/resumeContent";
-import { previewReview, previewSuggestions } from "./lib/previewAssistance";
+import {
+  profileFromResume,
+  resumeContent,
+  splitResume,
+} from "./lib/resumeContent";
+import {
+  previewDraft,
+  previewReview,
+  previewTailor,
+  type DraftKind,
+} from "./lib/previewAssistance";
 const empty: BoardState = {
   people: [],
   jobs: [],
@@ -35,10 +48,17 @@ const empty: BoardState = {
   requests: [],
   messages: [],
 };
+const sessionKey = "trojan-board-session";
+const sampleKey = "trojan-board-sample-user";
+
 function initialSettings(): Settings {
   let apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
   try {
     apiUrl = localStorage.getItem("trojan-api-url") || apiUrl;
+    const saved = JSON.parse(
+      sessionStorage.getItem(sessionKey) || "null",
+    ) as Settings | null;
+    if (saved?.mode === "api" && saved.apiUrl === apiUrl) return saved;
   } catch {
     /* Browser settings are optional. */
   }
@@ -49,7 +69,13 @@ export function useBoard() {
   const [live, setLive] = useState<BoardState>(empty);
   const [ready, setReady] = useState(false);
   const [settings, setSettings] = useState<Settings>(initialSettings);
-  const [activeId, setActiveId] = useState("alex");
+  const [activeId, setActiveId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem(sampleKey);
+    } catch {
+      return null;
+    }
+  });
   const [toast, setToast] = useState<{ text: string; error: boolean } | null>(
     null,
   );
@@ -98,74 +124,121 @@ export function useBoard() {
   const currentId = settings.mode === "demo" ? activeId : settings.apiUserId;
   const user = state.people.find((p) => p.id === currentId);
   const api = useMemo(() => new ApiClient(settings), [settings]);
-  const refresh = useCallback(async () => {
-    if (settings.mode !== "api") return;
-    setLoading(true);
-    try {
-      const data = await api.request<{ items: RawJob[] }>(
-        "/jobs?include_closed=true&include_expired=true&limit=100",
-      );
-      setLive((s) => ({
-        ...s,
-        jobs: data.items.map(mapJob),
-        people: [
-          ...s.people.filter(
-            (p) => !data.items.some((j) => String(j.alumni.id) === p.id),
-          ),
-          ...Array.from(
-            new Map(
-              data.items.map((j) => [j.alumni.id, mapUser(j.alumni)]),
-            ).values(),
-          ),
-        ],
-      }));
-      if (settings.token && settings.apiUserId) {
-        const raw = await api.request<RawUser>("/auth/me");
-        const me = mapUser(raw);
-        const path =
-          me.role === "student"
-            ? "/job-requests/sent"
-            : "/job-requests/received";
-        const [requests, resumes] = await Promise.all([
-          api.request<RawRequest[]>(path),
-          me.role === "student"
-            ? api.request<RawResume[]>("/resumes/mine")
-            : Promise.resolve([]),
-        ]);
-        const threads = requests.map(mapThread);
-        const students = [
-          ...new Map(threads.map((t) => [t.student.id, t.student])).values(),
-        ].filter((p) => p.id !== me.id);
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      if (settings.mode !== "api") return;
+      setLoading(true);
+      try {
+        const data = await api.request<{ items: RawJob[] }>(
+          "/jobs?include_closed=true&include_expired=true&limit=100",
+          { signal },
+        );
+        if (signal?.aborted) return;
         setLive((s) => ({
           ...s,
-          requests: threads.map((t) => t.request),
-          messages: threads.flatMap((t) => t.messages),
-          resumes: resumes
-            .filter((r) => r.status === "confirmed")
-            .map(mapResume),
+          jobs: data.items.map(mapJob),
           people: [
             ...s.people.filter(
-              (p) =>
-                p.id !== me.id &&
-                !students.some((student) => student.id === p.id),
+              (p) => !data.items.some((j) => String(j.alumni.id) === p.id),
             ),
-            me,
-            ...students,
+            ...Array.from(
+              new Map(
+                data.items.map((j) => [j.alumni.id, mapUser(j.alumni)]),
+              ).values(),
+            ),
           ],
         }));
+        if (settings.token && settings.apiUserId) {
+          const raw = await api.request<RawUser>("/auth/me", { signal });
+          const me = mapUser(raw);
+          const path =
+            me.role === "student"
+              ? "/job-requests/sent"
+              : "/job-requests/received";
+          const [requests, resumes] = await Promise.all([
+            api.request<RawRequest[]>(path, { signal }),
+            me.role === "student"
+              ? api.request<RawResume[]>("/resumes/mine", { signal })
+              : Promise.resolve([]),
+          ]);
+          if (signal?.aborted) return;
+          const base = resumes.find(
+            (r) => r.status === "confirmed" && r.job_id == null,
+          );
+          const profile = base ? profileFromResume(me, base.content) : me;
+          const threads = requests.map(mapThread);
+          const students = [
+            ...new Map(threads.map((t) => [t.student.id, t.student])).values(),
+          ].filter((p) => p.id !== me.id);
+          setLive((s) => ({
+            ...s,
+            requests: threads.map((t) => t.request),
+            messages: threads.flatMap((t) => t.messages),
+            resumes: resumes
+              .filter((r) => r.status === "confirmed")
+              .map(mapResume),
+            people: [
+              ...s.people.filter(
+                (p) =>
+                  p.id !== me.id &&
+                  !students.some((student) => student.id === p.id),
+              ),
+              profile,
+              ...students,
+            ],
+          }));
+        }
+      } catch (e) {
+        if (!signal?.aborted) {
+          if (e instanceof ApiError && e.status === 401 && settings.token) {
+            setSettings({ mode: "api", apiUrl: settings.apiUrl });
+            setLive(empty);
+            notify("Your session expired. Sign in again.", true);
+          } else notify(errorText(e), true);
+        }
+      } finally {
+        if (!signal?.aborted) setLoading(false);
       }
-    } catch (e) {
-      notify(errorText(e), true);
-    } finally {
-      setLoading(false);
-    }
-  }, [api, settings.mode, settings.token, settings.apiUserId, notify]);
+    },
+    [
+      api,
+      settings.apiUrl,
+      settings.mode,
+      settings.token,
+      settings.apiUserId,
+      notify,
+    ],
+  );
   useEffect(() => {
-    void refresh();
+    const controller = new AbortController();
+    void refresh(controller.signal);
+    return () => controller.abort();
   }, [refresh]);
-  function switchIdentity(id: string) {
+  useEffect(() => {
+    try {
+      if (settings.mode === "api")
+        sessionStorage.setItem(sessionKey, JSON.stringify(settings));
+      else sessionStorage.removeItem(sessionKey);
+    } catch {
+      // The session still works in memory if tab storage is disabled.
+    }
+  }, [settings]);
+  function rememberSample(id: string | null) {
     setActiveId(id);
+    try {
+      if (id) sessionStorage.setItem(sampleKey, id);
+      else sessionStorage.removeItem(sampleKey);
+    } catch {
+      /* The sample session still works in memory. */
+    }
+  }
+  function signInSample(id: string) {
+    rememberSample(id);
     setRequestDraft({ jobId: "", note: "", resumeId: "" });
+    if (settings.mode !== "demo") {
+      setLive(empty);
+      setSettings({ mode: "demo", apiUrl: settings.apiUrl });
+    }
   }
   function configure(next: Settings) {
     setSettings(next);
@@ -177,22 +250,57 @@ export function useBoard() {
       /* URL settings can remain in memory. */
     }
   }
-  async function login(email: string, password: string) {
-    const response = await api.request<{ access_token: string; user: RawUser }>(
-      "/auth/login",
-      { method: "POST", body: JSON.stringify({ email, password }) },
-    );
+  const authApi = new ApiClient({ mode: "api", apiUrl: settings.apiUrl });
+  function acceptSession(response: AuthResponse) {
     const me = mapUser(response.user);
-    setLive((s) => ({
-      ...s,
-      people: [...s.people.filter((p) => p.id !== me.id), me],
-    }));
-    setSettings((s) => ({
-      ...s,
+    rememberSample(null);
+    setRequestDraft({ jobId: "", note: "", resumeId: "" });
+    setLive({ ...empty, people: [me] });
+    setSettings({
+      mode: "api",
+      apiUrl: settings.apiUrl,
       token: response.access_token,
       apiUserId: me.id,
-    }));
-    notify(`Welcome, ${me.name.split(" ")[0]}.`);
+    });
+  }
+  async function login(email: string, password: string) {
+    acceptSession(
+      await authApi.request<AuthResponse>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      }),
+    );
+  }
+  async function register(input: {
+    full_name: string;
+    email: string;
+    password: string;
+    role: Person["role"];
+  }) {
+    return authApi.request<CodeResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+  async function verifyEmail(email: string, code: string) {
+    acceptSession(
+      await authApi.request<AuthResponse>("/auth/verify-email", {
+        method: "POST",
+        body: JSON.stringify({ email, code }),
+      }),
+    );
+  }
+  async function resendCode(email: string) {
+    return authApi.request<CodeResponse>("/auth/resend-code", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  }
+  function signOut() {
+    setRequestDraft({ jobId: "", note: "", resumeId: "" });
+    if (settings.mode === "demo") return rememberSample(null);
+    setLive(empty);
+    setSettings({ mode: "api", apiUrl: settings.apiUrl });
   }
   async function saveProfile(person: Person) {
     if (settings.mode === "api")
@@ -207,7 +315,26 @@ export function useBoard() {
     notify("Profile saved.");
   }
   async function importResume(file: File): Promise<ImportResult> {
-    return (await import("./lib/resume")).readResume(file);
+    if (settings.mode === "demo")
+      return (await import("./lib/resume")).readResume(file);
+    const data = new FormData();
+    data.set("file", file);
+    const draft = mapResume(
+      await api.request<RawResume>("/resumes/upload", {
+        method: "POST",
+        body: data,
+      }),
+    );
+    return {
+      importId: draft.id,
+      fileName: draft.fileName || file.name,
+      text: draft.text,
+      sourceText: draft.sourceText,
+      content: draft.content,
+      name: draft.content?.contact.name || undefined,
+      email: draft.content?.contact.email || undefined,
+      skills: draft.content?.skills,
+    };
   }
   async function confirmResume(
     person: Person,
@@ -218,14 +345,18 @@ export function useBoard() {
     const content = resumeContent(
       text,
       { name: person.name, email: person.email, location: person.location },
-      previous?.content,
+      source?.content || previous?.content,
       person.skills,
     );
     let resume: Resume;
     if (settings.mode === "api") {
-      const path = previous ? `/resumes/${previous.id}` : "/resumes";
+      const path = source?.importId
+        ? `/resumes/${source.importId}/confirm`
+        : previous
+          ? `/resumes/${previous.id}`
+          : "/resumes";
       const raw = await api.request<RawResume>(path, {
-        method: previous ? "PATCH" : "POST",
+        method: previous && !source?.importId ? "PATCH" : "POST",
         body: JSON.stringify({
           label: source?.fileName || previous?.label || "My base resume",
           content,
@@ -313,11 +444,71 @@ export function useBoard() {
     notify("Job-specific version saved. Your base resume is unchanged.");
     return next;
   }
-  async function tailor(resume: Resume, job: Job): Promise<Suggestion[]> {
-    if (settings.mode === "demo") return previewSuggestions(resume.text, job);
-    return api.request("/ai/resume-tailoring", {
+  async function tailor(resume: Resume, job: Job): Promise<TailorResult> {
+    if (settings.mode === "demo") return previewTailor(resume.text, job);
+    const run = await api.request<RawTailorRun>(`/resumes/${resume.id}/tailor`, {
       method: "POST",
-      body: JSON.stringify({ resumeId: resume.id, jobId: job.id }),
+      body: JSON.stringify({ job_id: Number(job.id) }),
+    });
+    return {
+      suggestions: run.suggestions
+        .filter((x) => x.action === "replace" && x.original.trim())
+        .map(({ original, suggested, reason, requirement }) => ({
+          original,
+          suggested,
+          reason,
+          requirement,
+        })),
+      additions: run.suggestions
+        .filter((x) => x.action !== "replace" && x.suggested.trim())
+        .map((x) => x.suggested),
+      emphasize: run.emphasize,
+      questions: run.missing_info_questions,
+    };
+  }
+  async function draftMessage(input: {
+    kind: DraftKind;
+    job?: Job;
+    resume?: Resume;
+    person?: Person;
+    request?: RequestItem;
+    topic?: string;
+    draft?: string;
+  }): Promise<string> {
+    if (!user) throw new Error("Please sign in first.");
+    if (settings.mode === "api") {
+      const res = await api.request<{ message: string }>("/ai/draft-message", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: input.kind,
+          job_id: input.job ? Number(input.job.id) : null,
+          resume_id: input.resume ? Number(input.resume.id) : null,
+          alum_id: input.person ? Number(input.person.id) : null,
+          request_id: input.request ? Number(input.request.id) : null,
+          topic: input.topic || null,
+          draft: input.draft || null,
+        }),
+      });
+      return res.message;
+    }
+    const request = input.request;
+    const otherId = request
+      ? request.studentId === user.id
+        ? request.alumniId
+        : request.studentId
+      : input.person?.id || input.job?.alumniId;
+    const thread = request
+      ? state.messages.filter((m) => m.requestId === request.id)
+      : [];
+    return previewDraft({
+      kind: input.kind,
+      sender: user,
+      recipient: state.people.find((p) => p.id === otherId),
+      job: input.job || state.jobs.find((j) => j.id === request?.jobId),
+      resume: input.resume?.text,
+      topic: input.topic,
+      lastMessage: thread[thread.length - 1]?.text || request?.note,
+      status: request?.status,
     });
   }
   async function review(request: RequestItem, job: Job): Promise<Review> {
@@ -358,6 +549,19 @@ export function useBoard() {
         ),
       }));
     notify("Role closed to new requests.");
+  }
+  async function reopenJob(job: Job) {
+    if (settings.mode === "api") {
+      await api.request(`/jobs/${job.id}/reopen`, { method: "POST" });
+      await refresh();
+    } else
+      update((s) => ({
+        ...s,
+        jobs: s.jobs.map((j) =>
+          j.id === job.id ? { ...j, status: "open" } : j,
+        ),
+      }));
+    notify("Role reopened.");
   }
   async function submitRequest(
     job: Job,
@@ -536,7 +740,7 @@ export function useBoard() {
     }));
     return thread.request;
   }
-  async function downloadResumeFile(resume: Resume) {
+  async function downloadResumeFile(resume: Pick<Resume, "id">) {
     return URL.createObjectURL(
       await api.request<Blob>(`/resumes/${resume.id}/file`),
     );
@@ -548,22 +752,11 @@ export function useBoard() {
     );
     return URL.createObjectURL(blob);
   }
-  async function loadAlumni() {
-    if (settings.mode === "demo") return;
-    const people = await api.request<Person[]>("/persona/alumni");
-    setLive((s) => ({
-      ...s,
-      people: [
-        ...s.people.filter((p) => !people.some((a) => a.id === p.id)),
-        ...people,
-      ],
-    }));
-  }
   function resetDemo() {
     setDemo(makeSeed());
     setActiveId("alex");
     setRequestDraft({ jobId: "", note: "", resumeId: "" });
-    notify("Sample workspace reset.");
+    notify("Sample data reset.");
   }
   return {
     state,
@@ -576,9 +769,13 @@ export function useBoard() {
     requestDraft,
     setRequestDraft,
     notify,
-    switchIdentity,
+    signInSample,
     configure,
     login,
+    register,
+    verifyEmail,
+    resendCode,
+    signOut,
     refresh,
     saveProfile,
     saveManualProfile,
@@ -587,15 +784,16 @@ export function useBoard() {
     saveTailored,
     tailor,
     review,
+    draftMessage,
     saveJob,
     closeJob,
+    reopenJob,
     submitRequest,
     connect,
     decide,
     sendMessage,
     downloadOriginal,
     downloadResumeFile,
-    loadAlumni,
     resetDemo,
   };
 }

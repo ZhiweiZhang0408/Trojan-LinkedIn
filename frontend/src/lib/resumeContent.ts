@@ -202,3 +202,57 @@ export function resumeContent(
       ),
   };
 }
+// Profile fields the backend does not store yet come from the student's confirmed resume.
+export function profileFromResume<
+  P extends {
+    location: string;
+    bio: string;
+    skills: string[];
+    education: string;
+    experience: string;
+    projects: string;
+  },
+>(person: P, c: ResumeContent): P {
+  const range = (start?: string | null, end?: string | null) => {
+    const r = [start, end].filter(Boolean).join(" – ");
+    return r ? ` (${r})` : "";
+  };
+  return {
+    ...person,
+    location: person.location || c.contact.location || "",
+    bio: person.bio || c.summary || "",
+    skills: person.skills.length ? person.skills : c.skills,
+    education:
+      person.education ||
+      c.education
+        .map((e) =>
+          join([
+            e.school,
+            [e.degree, e.major].filter(Boolean).join(" "),
+            e.gpa ? `GPA ${e.gpa}` : null,
+            e.end,
+          ]),
+        )
+        .join("\n"),
+    experience:
+      person.experience ||
+      c.experience
+        .map(
+          (e) =>
+            [e.title, e.company].filter(Boolean).join(", ") +
+            range(e.start, e.end) +
+            (e.bullets[0] ? `: ${e.bullets[0]}` : ""),
+        )
+        .join("\n"),
+    projects:
+      person.projects ||
+      c.projects
+        .map(
+          (p) =>
+            (p.name || "Project") +
+            (p.role ? ` (${p.role})` : "") +
+            (p.bullets[0] ? `: ${p.bullets[0]}` : ""),
+        )
+        .join("\n"),
+  };
+}

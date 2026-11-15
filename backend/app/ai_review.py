@@ -125,7 +125,7 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
-def _call_model(system: str, user: str, schema: type[BaseModel]) -> BaseModel:
+def _call_model(system: str, user: str, schema: type[BaseModel], effort: str | None = None) -> BaseModel:
     """One structured-output request. Raises AIUnavailable on any failure."""
     try:
         response = _get_client().beta.messages.parse(
@@ -134,7 +134,7 @@ def _call_model(system: str, user: str, schema: type[BaseModel]) -> BaseModel:
             system=system,
             messages=[{"role": "user", "content": user}],
             output_format=schema,
-            output_config={"effort": config.AI_EFFORT},
+            output_config={"effort": effort or config.AI_EFFORT},
             # If the model declines, the API retries on a fallback model in the same call
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",

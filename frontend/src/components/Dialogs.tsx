@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { downloadResumePdf, pdfName } from "../lib/resumePdf";
 import {
   ArrowLeft,
   ArrowRight,
@@ -15,6 +16,8 @@ import {
   MapPin,
   MessageSquare,
   Pencil,
+  Plus,
+  RefreshCw,
   Send,
   Sparkles,
   UploadCloud,
@@ -29,6 +32,7 @@ import type {
   Resume,
   Review,
   Suggestion,
+  TailorResult,
 } from "../types";
 import {
   Avatar,
@@ -40,6 +44,7 @@ import {
   Field,
   Logo,
   Notice,
+  PaneContext,
   Status,
 } from "./ui";
 import {
@@ -61,14 +66,80 @@ interface FormProps {
   open: (m: ModalState) => void;
   close: () => void;
 }
-function AiLabel({ demo }: { demo: boolean }) {
+function AiLabel() {
   return (
-    <div className={`ai-label ${demo ? "preview" : ""}`}>
+    <div className="ai-label">
       <Sparkles size={14} />
-      {demo
-        ? "Local rule-based preview · live AI not connected"
-        : "AI assistance · review the evidence"}
+      AI assist
     </div>
+  );
+}
+function DraftButton({
+  busy,
+  hasText,
+  onClick,
+}: {
+  busy: boolean;
+  hasText: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="ai-chip"
+      onClick={onClick}
+      disabled={busy}
+    >
+      <Sparkles size={13} className={busy ? "spin" : ""} />
+      {busy ? "Writing…" : hasText ? "Improve with AI" : "Write with AI"}
+    </button>
+  );
+}
+function useDraft(
+  b: Board,
+  setText: (v: string) => void,
+  setError: (v: string) => void,
+) {
+  const [drafting, setDrafting] = useState(false);
+  async function draft(input: Parameters<Board["draftMessage"]>[0]) {
+    setDrafting(true);
+    setError("");
+    try {
+      setText(await b.draftMessage(input));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setDrafting(false);
+    }
+  }
+  return { drafting, draft };
+}
+export function modalKey(m: NonNullable<ModalState>) {
+  return (
+    m.type +
+    (m.type === "thread"
+      ? m.request.id
+      : m.type === "person" || m.type === "connect"
+        ? m.person.id
+        : m.type === "job" || m.type === "compose" || m.type === "tailor"
+          ? m.job.id
+          : m.type === "post"
+            ? m.job?.id || "new"
+            : "")
+  );
+}
+export function inPane(modal: ModalState): modal is NonNullable<ModalState> {
+  return !!modal && modal.type !== "settings" && modal.type !== "login";
+}
+export function PaneView({
+  modal,
+  ...rest
+}: Omit<Props, "modal"> & { modal: ModalState }) {
+  if (!inPane(modal)) return null;
+  return (
+    <PaneContext.Provider value={true}>
+      <Dialogs key={modalKey(modal)} modal={modal} {...rest} />
+    </PaneContext.Provider>
   );
 }
 export function Dialogs(props: Props) {
@@ -110,7 +181,7 @@ export function Dialogs(props: Props) {
     case "settings":
       return <SettingsForm {...rest} />;
     case "login":
-      return <LoginForm {...rest} />;
+      return null;
   }
 }
 function JobDetail({
@@ -132,18 +203,19 @@ function JobDetail({
     isExpired(job.deadline);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  function tailorNow() {
+    if (!b.user) return open({ type: "login" });
+    const mine = b.state.resumes.filter((r) => r.ownerId === b.user?.id);
+    const base = mine.find((r) => !r.jobId) || mine[0];
+    open(base ? { type: "tailor", job, resume: base } : { type: "resume", job });
+  }
   function compose(purpose: "referral" | "question") {
     if (!b.user) return open({ type: "login" });
     if (existing) return open({ type: "thread", request: existing });
     open({ type: "compose", job, purpose });
   }
   return (
-    <Dialog
-      title="The opportunity"
-      description={`${job.company} · Shared by a Trojan`}
-      onClose={close}
-      wide
-    >
+    <Dialog title="Job details" onClose={close} wide>
       <div className="dialog-body">
         <div className="role-heading">
           <Logo company={job.company} color={job.color} large />
@@ -190,6 +262,20 @@ function JobDetail({
                   ))}
               </ul>
             </section>
+            {!mine && b.user?.role !== "alumni" && !closed && (
+              <div className="tailor-callout detail-ai">
+                <span className="small-icon">
+                  <Sparkles size={19} />
+                </span>
+                <div>
+                  <strong>Tailor your resume with AI</strong>
+                </div>
+                <Button variant="secondary" onClick={tailorNow}>
+                  Start
+                  <ArrowRight size={15} />
+                </Button>
+              </div>
+            )}
             <section className="detail-section">
               <h3>How to get in touch</h3>
               <p className="preserve-lines">
@@ -205,10 +291,6 @@ function JobDetail({
                 </External>
               )}
             </section>
-            <p className="fineprint">
-              {job.referralDisclaimer ||
-                "A referral does not guarantee an interview or offer."}
-            </p>
           </div>
           <aside className="alumni-context">
             <span className="eyebrow">YOUR ALUMNI CONNECTION</span>
@@ -254,15 +336,14 @@ function JobDetail({
               <Pencil size={15} />
               Edit post
             </Button>
-            {!closed && (
+            {(!closed || job.status === "closed") && (
               <Button
-                variant="danger"
+                variant={closed ? "primary" : "danger"}
                 busy={busy}
                 onClick={async () => {
                   setBusy(true);
                   try {
-                    await b.closeJob(job);
-                    close();
+                    await (closed ? b.reopenJob(job) : b.closeJob(job));
                   } catch (e) {
                     setError(errorText(e));
                   } finally {
@@ -270,14 +351,14 @@ function JobDetail({
                   }
                 }}
               >
-                Close role
+                {closed ? "Reopen role" : "Close role"}
               </Button>
             )}
           </>
         ) : b.user?.role === "alumni" ? (
-          <span className="muted">
-            This opportunity is shared by a fellow alum.
-          </span>
+          <Button variant="secondary" onClick={close}>
+            Close
+          </Button>
         ) : existing ? (
           <Button onClick={() => open({ type: "thread", request: existing })}>
             Open your request
@@ -285,17 +366,16 @@ function JobDetail({
           </Button>
         ) : (
           <>
-            <span className="footer-hint">
-              {closed
-                ? "This role is no longer accepting requests."
-                : "A short introduction is a great start."}
-            </span>
+            {closed && (
+              <span className="footer-hint">No longer accepting requests</span>
+            )}
             <Button
               variant="secondary"
               disabled={closed}
               onClick={() => compose("question")}
             >
-              Ask a question
+              <MessageSquare size={15} />
+              Talk to {alum?.name.split(" ")[0] || "the alum"}
             </Button>
             {job.referralAvailable && (
               <Button disabled={closed} onClick={() => compose("referral")}>
@@ -309,7 +389,12 @@ function JobDetail({
     </Dialog>
   );
 }
-function PostForm({ board: b, job, close }: FormProps & { job?: Job }) {
+function PostForm({
+  board: b,
+  job,
+  open,
+  close,
+}: FormProps & { job?: Job }) {
   const [draft, setDraft] = useState<Job>(
     job || {
       id: uid(),
@@ -343,8 +428,8 @@ function PostForm({ board: b, job, close }: FormProps & { job?: Job }) {
       return setError("Sign in as an alum to share an opening.");
     setBusy(true);
     try {
-      await b.saveJob(draft, !!job);
-      close();
+      const saved = await b.saveJob(draft, !!job);
+      open({ type: "job", job: saved });
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -352,12 +437,7 @@ function PostForm({ board: b, job, close }: FormProps & { job?: Job }) {
     }
   }
   return (
-    <Dialog
-      title={job ? "Edit your opening" : "Open a door for a Trojan"}
-      description="Share a role and let students know how you can help."
-      onClose={close}
-      wide
-    >
+    <Dialog title={job ? "Edit job post" : "Post a job"} onClose={close} wide>
       <form onSubmit={submit}>
         <div className="dialog-body form-grid">
           <Field label="Role title">
@@ -419,11 +499,7 @@ function PostForm({ board: b, job, close }: FormProps & { job?: Job }) {
               placeholder="What will this person work on?"
             />
           </Field>
-          <Field
-            label="Requirements"
-            hint="One requirement per line makes the role easier to review."
-            full
-          >
+          <Field label="Requirements (one per line)" full>
             <textarea
               required
               rows={4}
@@ -526,7 +602,7 @@ function PersonFields({
         <input
           value={draft.program}
           onChange={(e) => field("program", e.target.value)}
-          placeholder="e.g. MS Business Analytics"
+          placeholder="e.g. B.S. Computer Science"
         />
       </Field>
       <Field label="Graduation year">
@@ -610,8 +686,7 @@ function ProfileForm({ board: b, close }: FormProps) {
   }
   return (
     <Dialog
-      title="Your story, in your words"
-      description="A little context helps fellow Trojans make a meaningful connection."
+      title={b.settings.mode === "api" ? "Create resume" : "Edit profile"}
       onClose={close}
       wide
     >
@@ -696,14 +771,11 @@ function ProfileForm({ board: b, close }: FormProps) {
           )}
         </div>
         <footer className="dialog-footer">
-          <span className="footer-hint">
-            You control the information you share.
-          </span>
           <Button type="button" variant="secondary" onClick={close}>
             Cancel
           </Button>
           <Button type="submit" busy={busy}>
-            Save profile
+            {b.settings.mode === "api" ? "Save resume" : "Save profile"}
             <Check size={16} />
           </Button>
         </footer>
@@ -748,12 +820,13 @@ function ResumeForm({
   if (!draft) return null;
   const selectedResume = resumes.find((r) => r.id === selected);
   async function downloadSavedFile() {
-    if (!selectedResume) return;
+    const fileId = source?.importId || selectedResume?.id;
+    if (!fileId) return;
     try {
-      const url = await b.downloadResumeFile(selectedResume);
+      const url = await b.downloadResumeFile({ id: fileId });
       const link = document.createElement("a");
       link.href = url;
-      link.download = selectedResume.fileName || "resume";
+      link.download = source?.fileName || selectedResume?.fileName || "resume";
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
@@ -773,6 +846,7 @@ function ResumeForm({
         ...d,
         name: result.name || d.name,
         email: result.email || d.email,
+        location: result.content?.contact.location || d.location,
       }));
       if (result.skills?.length) setSkills(result.skills.join(", "));
     } catch (e) {
@@ -820,24 +894,17 @@ function ResumeForm({
     }
   }
   return (
-    <Dialog
-      title="Your resume, ready to share"
-      description="Upload a resume or use your saved information. Review everything before saving."
-      onClose={close}
-      wide
-    >
+    <Dialog title="Resume" onClose={close} wide>
       <form onSubmit={submit}>
         <div className="dialog-body">
           <div className="upload-zone">
             <UploadCloud size={28} />
             <div>
               <strong>
-                {reading
-                  ? "Reading your resume…"
-                  : "Bring your experience with you."}
+                {reading ? "Reading your resume…" : "Upload a resume"}
               </strong>
               <p>
-                {source ? source.fileName : "Upload a PDF or DOCX · up to 5 MB"}
+                {source ? source.fileName : "PDF or DOCX · 5 MB max"}
               </p>
             </div>
             <label
@@ -892,13 +959,6 @@ function ResumeForm({
               </select>
             </Field>
           )}
-          {source && (
-            <Notice>
-              {b.settings.mode === "api"
-                ? "The file was read in this browser. The backend will save the confirmed content."
-                : "The file has been read. Confirm the details below and correct anything you’d like to change."}
-            </Notice>
-          )}
           <div className="resume-confirm-heading">
             <h3>Review your information</h3>
             {(source?.fileData || selectedResume?.fileData) && (
@@ -911,8 +971,7 @@ function ResumeForm({
                 Original file
               </a>
             )}
-            {!source &&
-              selectedResume?.fileName &&
+            {(source?.importId || (!source && selectedResume?.fileName)) &&
               b.settings.mode === "api" && (
                 <button
                   type="button"
@@ -924,6 +983,12 @@ function ResumeForm({
                 </button>
               )}
           </div>
+          {source?.sourceText && (
+            <details className="source-resume">
+              <summary>View extracted text</summary>
+              <pre className="resume-preview">{source.sourceText}</pre>
+            </details>
+          )}
           <div className="form-grid">
             <Field label="Full name">
               <input
@@ -962,11 +1027,7 @@ function ResumeForm({
                 onChange={(e) => setSkills(e.target.value)}
               />
             </Field>
-            <Field
-              label="Confirmed resume content"
-              full
-              hint="This editable content is used for tailoring, your selected submission, and alumni review."
-            >
+            <Field label="Resume content" full>
               <textarea
                 required
                 rows={15}
@@ -989,9 +1050,6 @@ function ResumeForm({
           {error && <ErrorBox message={error} />}
         </div>
         <footer className="dialog-footer">
-          <span className="footer-hint">
-            Existing information changes only when you confirm.
-          </span>
           <Button type="button" variant="secondary" onClick={close}>
             Cancel
           </Button>
@@ -1013,6 +1071,7 @@ function TailorForm({
   close,
 }: FormProps & { job: Job; resume: Resume; returnTo?: "compose" }) {
   const [text, setText] = useState(resume.text),
+    [result, setResult] = useState<TailorResult>(),
     [suggestions, setSuggestions] = useState<Suggestion[]>([]),
     [applied, setApplied] = useState<number[]>([]),
     [busy, setBusy] = useState(false),
@@ -1022,13 +1081,22 @@ function TailorForm({
     setBusy(true);
     setError("");
     try {
-      setSuggestions(await b.tailor(resume, job));
+      const next = await b.tailor(resume, job);
+      setResult(next);
+      setSuggestions(next.suggestions);
+      setApplied([]);
     } catch (e) {
       setError(errorText(e));
     } finally {
       setBusy(false);
     }
   }
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void generate();
+  }, []);
   async function save() {
     setSaving(true);
     try {
@@ -1042,66 +1110,141 @@ function TailorForm({
       setSaving(false);
     }
   }
+  const empty =
+    result &&
+    !result.suggestions.length &&
+    !result.additions.length &&
+    !result.emphasize.length &&
+    !result.questions.length;
   return (
     <Dialog
-      title="Make your experience relevant"
+      title="Tailor with AI"
       description={`${job.title} · ${job.company}`}
       onClose={close}
       wide
     >
       <div className="dialog-body">
-        <AiLabel demo={b.settings.mode === "demo"} />
-        <p className="muted">
-          Review suggestions against the role, edit the wording, and keep only
-          changes that accurately describe your experience.
-        </p>
-        <Button variant="secondary" busy={busy} onClick={generate}>
-          <Sparkles size={16} />
-          {suggestions.length ? "Review again" : "Suggest targeted edits"}
-        </Button>
-        {suggestions.map((s, i) => (
-          <div className="suggestion-card" key={i}>
-            <span className="eyebrow">RELEVANT EXPERIENCE {i + 1}</span>
-            <p className="original-passage">{s.original}</p>
-            <textarea
-              aria-label={`Suggested edit ${i + 1}`}
-              rows={3}
-              value={s.suggested}
-              onChange={(e) =>
-                setSuggestions((v) =>
-                  v.map((a, n) =>
-                    n === i ? { ...a, suggested: e.target.value } : a,
-                  ),
-                )
-              }
-            />
-            <p>{s.reason}</p>
-            <Button
-              variant="secondary"
-              disabled={applied.includes(i)}
-              onClick={() => {
-                if (!text.includes(s.original))
-                  return setError(
-                    "That source passage has changed. Edit the resume below or review again.",
-                  );
-                setText((t) => t.replace(s.original, s.suggested));
-                setApplied((a) => [...a, i]);
-              }}
-            >
-              {applied.includes(i) ? (
-                <>
-                  <Check size={15} />
-                  Applied
-                </>
-              ) : (
-                <>
-                  Use this wording
-                  <ArrowRight size={15} />
-                </>
-              )}
-            </Button>
+        <div className="ai-head">
+          <AiLabel />
+          <span className="ai-source">{resume.label}</span>
+          {!busy && result && (
+            <button className="text-link" onClick={generate}>
+              <RefreshCw size={14} />
+              Regenerate
+            </button>
+          )}
+        </div>
+        {busy && (
+          <div className="ai-thinking" role="status">
+            <Sparkles size={18} />
+            Reading the role and your resume…
           </div>
-        ))}
+        )}
+        {error && (
+          <ErrorBox message={error}>
+            <button className="text-link" onClick={generate}>
+              Try again
+            </button>
+          </ErrorBox>
+        )}
+        {empty && (
+          <div className="ai-thinking done">
+            No changes suggested for this role.
+          </div>
+        )}
+        {suggestions.length > 0 && (
+          <section className="ai-section">
+            <h3>Suggested edits</h3>
+            {suggestions.map((s, i) => (
+              <div className="suggestion-card" key={i}>
+                <span className="eyebrow">
+                  {s.requirement ? `For · ${s.requirement}` : `Edit ${i + 1}`}
+                </span>
+                <p className="original-passage">{s.original}</p>
+                <textarea
+                  aria-label={`Suggested edit ${i + 1}`}
+                  rows={3}
+                  value={s.suggested}
+                  onChange={(e) =>
+                    setSuggestions((v) =>
+                      v.map((a, n) =>
+                        n === i ? { ...a, suggested: e.target.value } : a,
+                      ),
+                    )
+                  }
+                />
+                <p>{s.reason}</p>
+                <Button
+                  variant="secondary"
+                  disabled={applied.includes(i)}
+                  onClick={() => {
+                    if (!text.includes(s.original))
+                      return setError(
+                        "That passage has changed. Edit the resume below or regenerate.",
+                      );
+                    setText((t) => t.replace(s.original, s.suggested));
+                    setApplied((a) => [...a, i]);
+                  }}
+                >
+                  {applied.includes(i) ? (
+                    <>
+                      <Check size={15} />
+                      Applied
+                    </>
+                  ) : (
+                    <>
+                      Apply
+                      <ArrowRight size={15} />
+                    </>
+                  )}
+                </Button>
+              </div>
+            ))}
+          </section>
+        )}
+        {result && (result.emphasize.length > 0 || result.additions.length > 0) && (
+          <section className="ai-section ai-grid">
+            {result.emphasize.length > 0 && (
+              <div>
+                <h3>Worth emphasizing</h3>
+                <ul className="ai-list">
+                  {result.emphasize.map((x) => (
+                    <li key={x}>
+                      <CheckCircle2 size={15} />
+                      {x}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {result.additions.length > 0 && (
+              <div>
+                <h3>Could add</h3>
+                <ul className="ai-list add">
+                  {result.additions.map((x) => (
+                    <li key={x}>
+                      <Plus size={15} />
+                      {x}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
+        {result && result.questions.length > 0 && (
+          <section className="ai-section">
+            <h3>Questions to strengthen your resume</h3>
+            <ul className="ai-list ask">
+              {result.questions.map((q) => (
+                <li key={q}>
+                  <MessageSquare size={15} />
+                  {q}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <Field label="Your job-specific resume" full>
           <textarea
             className="resume-textarea"
@@ -1110,14 +1253,23 @@ function TailorForm({
             onChange={(e) => setText(e.target.value)}
           />
         </Field>
-        {error && <ErrorBox message={error} />}
       </div>
       <footer className="dialog-footer">
-        <span className="footer-hint">
-          Your base resume stays saved separately.
-        </span>
         <Button variant="secondary" onClick={close}>
           Cancel
+        </Button>
+        <Button
+          variant="secondary"
+          disabled={text.trim().length < 30}
+          onClick={() =>
+            void downloadResumePdf(
+              text,
+              pdfName(b.user?.name || "resume", `${job.company} ${job.title}`),
+            ).catch((e) => setError(errorText(e)))
+          }
+        >
+          <Download size={15} />
+          PDF
         </Button>
         <Button busy={saving} disabled={text.trim().length < 30} onClick={save}>
           Save this version
@@ -1142,13 +1294,17 @@ function ComposeForm({
     [resumeId, setResumeId] = useState(
       b.requestDraft.jobId === job.id && b.requestDraft.resumeId
         ? b.requestDraft.resumeId
-        : resumes.find((r) => r.jobId === job.id)?.id || resumes[0]?.id || "",
+        : resumes.find((r) => r.jobId === job.id)?.id ||
+            resumes.find((r) => !r.jobId)?.id ||
+            resumes[0]?.id ||
+            "",
     ),
     [share, setShare] = useState(false),
     [preview, setPreview] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const resume = resumes.find((r) => r.id === resumeId);
+  const { drafting, draft } = useDraft(b, setNote, setError);
   function remember() {
     b.setRequestDraft({ jobId: job.id, note, resumeId });
   }
@@ -1182,16 +1338,12 @@ function ComposeForm({
     <Dialog
       title={
         preview
-          ? "One last look before you send"
+          ? "Review your request"
           : purpose === "referral"
-            ? "Start with a thoughtful introduction"
-            : "Ask the person behind the role"
+            ? "Request a referral"
+            : `Talk to ${alumni?.name.split(" ")[0] || "the alum"}`
       }
-      description={
-        preview
-          ? "Confirm the materials you’re sharing."
-          : `Your message goes directly to ${alumni?.name || "the responsible alum"}.`
-      }
+      description={`To ${alumni?.name || "the alum who posted the role"}`}
       onClose={close}
       wide
     >
@@ -1217,31 +1369,40 @@ function ComposeForm({
                 <div className="review-block">
                   <h3>Selected resume · {resume.label}</h3>
                   <pre className="resume-preview">{resume.text}</pre>
-                  <p className="fineprint">
-                    {share
-                      ? "The original uploaded file will also be shared, labeled separately."
-                      : "Your confirmed resume content will be shared."}
-                  </p>
+                  {share && resume.fileName && (
+                    <p className="fineprint">+ {resume.fileName}</p>
+                  )}
                 </div>
               )}
-              <Notice>
-                {purpose === "referral"
-                  ? "This is a request to the alum. Follow any separate official application instructions."
-                  : "Your question will appear in a conversation with this alum."}
-              </Notice>
             </>
           ) : (
             <>
-              <Field label="Your introduction" full>
+              <div className="field full">
+                <div className="field-head">
+                  <span>Your introduction</span>
+                  <DraftButton
+                    busy={drafting}
+                    hasText={!!note.trim()}
+                    onClick={() =>
+                      draft({
+                        kind: purpose,
+                        job,
+                        resume: purpose === "referral" ? resume : undefined,
+                        draft: note,
+                      })
+                    }
+                  />
+                </div>
                 <textarea
+                  aria-label="Your introduction"
                   required
                   maxLength={2000}
-                  rows={5}
+                  rows={8}
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   placeholder={`Hi ${alumni?.name.split(" ")[0] || "there"}, I’m a USC student interested in…`}
                 />
-              </Field>
+              </div>
               {purpose === "referral" && (
                 <>
                   <div className="resume-select-heading">
@@ -1279,10 +1440,7 @@ function ComposeForm({
                   ) : (
                     <div className="inline-empty">
                       <FileText size={20} />
-                      <span>
-                        Add your resume to help the alum understand your
-                        experience.
-                      </span>
+                      <span>No resume yet</span>
                       <Button
                         type="button"
                         variant="secondary"
@@ -1307,8 +1465,7 @@ function ComposeForm({
                           <Sparkles size={19} />
                         </span>
                         <div>
-                          <strong>A little preparation goes a long way.</strong>
-                          <p>Review your experience against this role.</p>
+                          <strong>Tailor your resume with AI</strong>
                         </div>
                         <Button
                           type="button"
@@ -1323,7 +1480,7 @@ function ComposeForm({
                             });
                           }}
                         >
-                          Tailor for this role
+                          Start
                         </Button>
                       </div>
                       {(resume.fileData ||
@@ -1396,7 +1553,7 @@ function PersonDetail({
   );
   const own = b.user?.id === person.id;
   return (
-    <Dialog title="A fellow Trojan" onClose={close} wide>
+    <Dialog title="Alumni profile" onClose={close} wide>
       <div className="dialog-body">
         <div className="person-detail-heading">
           <Avatar person={person} size="xl" />
@@ -1486,7 +1643,7 @@ function PersonDetail({
         )}
       </div>
       <footer className="dialog-footer">
-        {own ? (
+        {own && b.settings.mode === "demo" ? (
           <Button variant="secondary" onClick={() => open({ type: "profile" })}>
             Edit your profile
           </Button>
@@ -1498,9 +1655,6 @@ function PersonDetail({
             </Button>
           ) : (
             <>
-              <span className="footer-hint">
-                Start with a purpose and a short introduction.
-              </span>
               <Button
                 disabled={!person.openToConnect && !person.coffeeChats}
                 onClick={() =>
@@ -1535,6 +1689,10 @@ function ConnectForm({
     [availability, setAvailability] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const { drafting, draft } = useDraft(b, setNote, setError);
+  const baseResume = b.state.resumes.find(
+    (r) => r.ownerId === b.user?.id && !r.jobId,
+  );
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -1554,11 +1712,7 @@ function ConnectForm({
     }
   }
   return (
-    <Dialog
-      title={`Say hello to ${person.name.split(" ")[0]}`}
-      description="Make your request specific and easy to respond to."
-      onClose={close}
-    >
+    <Dialog title={`Connect with ${person.name.split(" ")[0]}`} onClose={close}>
       <form onSubmit={submit}>
         <div className="dialog-body">
           <div className="person-summary">
@@ -1585,16 +1739,33 @@ function ConnectForm({
               )}
             </select>
           </Field>
-          <Field label="Your introduction">
+          <div className="field">
+            <div className="field-head">
+              <span>Your introduction</span>
+              <DraftButton
+                busy={drafting}
+                hasText={!!note.trim()}
+                onClick={() =>
+                  draft({
+                    kind: purpose,
+                    person,
+                    resume: baseResume,
+                    topic,
+                    draft: note,
+                  })
+                }
+              />
+            </div>
             <textarea
+              aria-label="Your introduction"
               required
               minLength={20}
-              rows={4}
+              rows={7}
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Tell them a little about yourself and what you’d like to learn."
             />
-          </Field>
+          </div>
           {purpose === "coffee" && (
             <>
               <Field label="Conversation topic">
@@ -1616,11 +1787,6 @@ function ConnectForm({
               </Field>
             </>
           )}
-          <p className="fineprint">
-            After acceptance, you can exchange replies and share contact details
-            to arrange your conversation. Accepting an invitation does not
-            confirm a meeting time.
-          </p>
           {error && <ErrorBox message={error} />}
         </div>
         <footer className="dialog-footer">
@@ -1650,6 +1816,7 @@ function ThreadView({
     [reviewing, setReviewing] = useState(false),
     [error, setError] = useState(""),
     [showResume, setShowResume] = useState(false);
+  const { drafting, draft } = useDraft(b, setReply, setError);
   if (!user || ![request.studentId, request.alumniId].includes(user.id))
     return (
       <Dialog title="Private conversation" onClose={close}>
@@ -1706,6 +1873,7 @@ function ThreadView({
   async function analyze() {
     if (!job) return;
     setReviewing(true);
+    setError("");
     try {
       setReview(await b.review(request, job));
     } catch (e) {
@@ -1754,10 +1922,7 @@ function ThreadView({
           <Status status={request.status} />
         </div>
         {request.availability && (
-          <Notice>
-            Proposed availability: {request.availability}. Confirm a time
-            together after acceptance.
-          </Notice>
+          <Notice>Proposed availability: {request.availability}</Notice>
         )}
         {request.kind === "job" &&
           (request.resumeSnapshot || request.fileName) && (
@@ -1779,6 +1944,23 @@ function ThreadView({
                   {request.resumeSnapshot && (
                     <button
                       className="text-link"
+                      onClick={() =>
+                        void downloadResumePdf(
+                          request.resumeSnapshot!,
+                          pdfName(
+                            student?.name || "resume",
+                            job?.company || request.jobCompany || "",
+                          ),
+                        ).catch((e) => setError(errorText(e)))
+                      }
+                    >
+                      <Download size={14} />
+                      PDF
+                    </button>
+                  )}
+                  {request.resumeSnapshot && (
+                    <button
+                      className="text-link"
                       onClick={() => setShowResume(!showResume)}
                     >
                       <FileText size={14} />
@@ -1790,23 +1972,29 @@ function ThreadView({
               {showResume && (
                 <pre className="resume-preview">{request.resumeSnapshot}</pre>
               )}
-              {amAlum && (
+              {amAlum && request.resumeSnapshot && (
                 <>
-                  <Button
-                    variant="secondary"
-                    busy={reviewing}
-                    disabled={
-                      !request.resumeSnapshot && b.settings.mode === "demo"
-                    }
-                    onClick={analyze}
-                  >
-                    <Sparkles size={16} />
-                    Review with AI
-                  </Button>
+                  {!review && (
+                    <div className="tailor-callout">
+                      <span className="small-icon">
+                        <Sparkles size={19} />
+                      </span>
+                      <div>
+                        <strong>Review with AI</strong>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        busy={reviewing}
+                        onClick={analyze}
+                      >
+                        {reviewing ? "Reviewing…" : "Compare with role"}
+                      </Button>
+                    </div>
+                  )}
                   {review && (
                     <div className="review-results">
-                      <AiLabel demo={b.settings.mode === "demo"} />
-                      <h3>Relevant experience at a glance</h3>
+                      <AiLabel />
+                      <h3>Candidate summary</h3>
                       <p>{review.summary}</p>
                       <div className="evidence-list">
                         {review.evidence.map((item, i) => (
@@ -1837,10 +2025,6 @@ function ThreadView({
                           </ul>
                         </>
                       )}
-                      <p className="fineprint">
-                        Use the supporting passages to make your own assessment.
-                        Missing information is not proof of a missing skill.
-                      </p>
                     </div>
                   )}
                 </>
@@ -1851,11 +2035,7 @@ function ThreadView({
           <div className="contact-handoff">
             <CheckCircle2 size={21} />
             <div>
-              <strong>You’re connected.</strong>
-              <p>
-                Agree on a time in this conversation or use your shared contact
-                details.
-              </p>
+              <strong>You’re connected</strong>
               {other?.email && (
                 <a className="text-link" href={`mailto:${other.email}`}>
                   <Mail size={14} />
@@ -1905,15 +2085,28 @@ function ThreadView({
         </div>
         {error && <ErrorBox message={error} />}
         <form onSubmit={send} className="reply-form">
-          <label className="field">
-            <span>
-              {mayReply
-                ? "Your reply"
-                : request.status === "pending"
-                  ? "Waiting for the invitation to be accepted"
-                  : "This request is closed"}
-            </span>
+          <div className="field">
+            <div className="field-head">
+              <span>
+                {mayReply
+                  ? "Your reply"
+                  : request.status === "pending"
+                    ? "Waiting for the invitation to be accepted"
+                    : "This request is closed"}
+              </span>
+              {request.kind === "job" &&
+                (mayReply || (amAlum && request.status === "pending")) && (
+                  <DraftButton
+                    busy={drafting}
+                    hasText={!!reply.trim()}
+                    onClick={() =>
+                      draft({ kind: "reply", request, draft: reply })
+                    }
+                  />
+                )}
+            </div>
             <textarea
+              aria-label="Your reply"
               disabled={!mayReply && !(amAlum && request.status === "pending")}
               rows={3}
               value={reply}
@@ -1926,7 +2119,7 @@ function ThreadView({
                     : "Replies appear here after acceptance."
               }
             />
-          </label>
+          </div>
           <div className="thread-actions">
             {amAlum && request.status === "pending" ? (
               <>
@@ -1987,8 +2180,8 @@ function SettingsForm({ board: b, close }: FormProps) {
   }
   return (
     <Dialog
-      title="Preview workspace"
-      description="Choose local sample data or connect to your team’s backend."
+      title="Workspace settings"
+      description="Select a data source."
       onClose={close}
     >
       <form onSubmit={submit}>
@@ -2002,11 +2195,8 @@ function SettingsForm({ board: b, close }: FormProps) {
                 onChange={() => setMode("demo")}
               />
               <div>
-                <strong>Local demo</strong>
-                <p>
-                  Fictional profiles and roles, saved in this browser. Real
-                  PDF/DOCX reading; rule-based assistance previews.
-                </p>
+                <strong>Sample data</strong>
+                <p>Saved in this browser.</p>
               </div>
             </label>
             <label className={mode === "api" ? "selected" : ""}>
@@ -2018,10 +2208,7 @@ function SettingsForm({ board: b, close }: FormProps) {
               />
               <div>
                 <strong>Connect a backend</strong>
-                <p>
-                  Use your team’s running API. Available operations use real
-                  server responses.
-                </p>
+                <p>Connect to a running server.</p>
               </div>
             </label>
           </div>
@@ -2037,10 +2224,8 @@ function SettingsForm({ board: b, close }: FormProps) {
             </Field>
           )}
           <div className="reset-panel">
-            <strong>Start the sample workspace fresh</strong>
-            <p>
-              Clears locally saved demo profiles, resumes, and conversations.
-            </p>
+            <strong>Reset sample data</strong>
+            <p>Clears sample workspace changes saved in this browser.</p>
             <Button
               type="button"
               variant="danger"
@@ -2051,9 +2236,7 @@ function SettingsForm({ board: b, close }: FormProps) {
                 } else setConfirmReset(true);
               }}
             >
-              {confirmReset
-                ? "Confirm reset of local demo data"
-                : "Reset sample workspace"}
+              {confirmReset ? "Confirm reset" : "Reset sample data"}
             </Button>
           </div>
           {error && <ErrorBox message={error} />}
@@ -2063,99 +2246,11 @@ function SettingsForm({ board: b, close }: FormProps) {
             Cancel
           </Button>
           <Button type="submit">
-            Use this workspace
+            Save settings
             <ArrowRight size={16} />
           </Button>
         </footer>
       </form>
-    </Dialog>
-  );
-}
-function LoginForm({ board: b, close }: FormProps) {
-  const [email, setEmail] = useState(""),
-    [password, setPassword] = useState(""),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      await b.login(email, password);
-      close();
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Dialog
-      title={
-        b.settings.mode === "demo"
-          ? "Try a Trojan’s perspective"
-          : "Welcome back, Trojan"
-      }
-      description={
-        b.settings.mode === "demo"
-          ? "Choose a fictional identity to explore the app."
-          : "Sign in to your team’s backend."
-      }
-      onClose={close}
-    >
-      {b.settings.mode === "demo" ? (
-        <div className="dialog-body demo-identity-options">
-          {b.state.people
-            .filter((p) => ["alex", "maya", "jordan"].includes(p.id))
-            .map((p) => (
-              <button
-                key={p.id}
-                onClick={() => {
-                  b.switchIdentity(p.id);
-                  close();
-                }}
-              >
-                <Avatar person={p} />
-                <div>
-                  <strong>{p.name}</strong>
-                  <span>
-                    {p.role === "student" ? "Student" : `Alum · ${p.company}`}
-                  </span>
-                </div>
-                <ArrowRight size={18} />
-              </button>
-            ))}
-        </div>
-      ) : (
-        <form onSubmit={submit}>
-          <div className="dialog-body">
-            <Field label="Email">
-              <input
-                autoComplete="username"
-                required
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </Field>
-            <Field label="Password">
-              <input
-                autoComplete="current-password"
-                required
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </Field>
-            {error && <ErrorBox message={error} />}
-          </div>
-          <footer className="dialog-footer">
-            <Button type="submit" busy={busy}>
-              Sign in
-              <ArrowRight size={16} />
-            </Button>
-          </footer>
-        </form>
-      )}
     </Dialog>
   );
 }
