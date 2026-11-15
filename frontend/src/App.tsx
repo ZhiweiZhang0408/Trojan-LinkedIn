@@ -121,13 +121,13 @@ export default function App() {
           <button
             className="wordmark"
             onClick={() => navigate("jobs")}
-            aria-label="Trojan Board home"
+            aria-label="TrojanLink home"
           >
             <span className="brand-symbol" aria-hidden="true">
               T
             </span>
             <span>
-              Trojan <span className="brand-light">Board</span>
+              Trojan<span className="brand-light">Link</span>
             </span>
           </button>
           {!authPage && (

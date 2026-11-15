@@ -252,7 +252,7 @@ textarea {
 .brand-light {
   font-weight: 500;
   color: var(--text-2);
-  margin-left: 2px;
+  margin-left: 0;
 }
 .app-header nav {
   display: flex;

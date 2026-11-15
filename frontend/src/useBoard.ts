@@ -26,6 +26,11 @@ import {
   type RawJob,
   type RawRequest,
   type RawResume,
+  type RawPersona,
+  type RawConnection,
+  mapPersona,
+  mapConnection,
+  connectionApiId,
   type RawTailorRun,
   type RawUser,
 } from "./lib/api";
@@ -51,8 +56,13 @@ const empty: BoardState = {
 const sessionKey = "trojan-board-session";
 const sampleKey = "trojan-board-sample-user";
 
+// A hosted build (VITE_HOSTED=true) is served by the backend itself, so it talks
+// to its own origin and starts connected instead of in sample mode.
+const hosted = import.meta.env.VITE_HOSTED === "true";
 function initialSettings(): Settings {
-  let apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  let apiUrl =
+    import.meta.env.VITE_API_BASE_URL ||
+    (hosted ? window.location.origin : "http://localhost:8000");
   try {
     apiUrl = localStorage.getItem("trojan-api-url") || apiUrl;
     const saved = JSON.parse(
@@ -62,7 +72,7 @@ function initialSettings(): Settings {
   } catch {
     /* Browser settings are optional. */
   }
-  return { mode: "demo", apiUrl };
+  return { mode: hosted ? "api" : "demo", apiUrl };
 }
 export function useBoard() {
   const [demo, setDemo] = useState<BoardState>(makeSeed);
@@ -148,18 +158,31 @@ export function useBoard() {
             ),
           ],
         }));
+        const directory = await api
+          .request<RawPersona[]>("/connections/alumni", { signal })
+          .catch(() => [] as RawPersona[]);
+        if (signal?.aborted) return;
+        const alumni = directory.map(mapPersona);
+        setLive((s) => ({
+          ...s,
+          people: [
+            ...s.people.filter((p) => !alumni.some((a) => a.id === p.id)),
+            ...alumni,
+          ],
+        }));
         if (settings.token && settings.apiUserId) {
-          const raw = await api.request<RawUser>("/auth/me", { signal });
-          const me = mapUser(raw);
+          const raw = await api.request<RawPersona>("/persona/me", { signal });
+          const me = mapPersona(raw);
           const path =
             me.role === "student"
               ? "/job-requests/sent"
               : "/job-requests/received";
-          const [requests, resumes] = await Promise.all([
+          const [requests, resumes, invitations] = await Promise.all([
             api.request<RawRequest[]>(path, { signal }),
             me.role === "student"
               ? api.request<RawResume[]>("/resumes/mine", { signal })
               : Promise.resolve([]),
+            api.request<RawConnection[]>("/connections/requests", { signal }),
           ]);
           if (signal?.aborted) return;
           const base = resumes.find(
@@ -167,13 +190,26 @@ export function useBoard() {
           );
           const profile = base ? profileFromResume(me, base.content) : me;
           const threads = requests.map(mapThread);
+          const links = invitations.map(mapConnection);
+          const known = new Set(alumni.map((a) => a.id));
           const students = [
-            ...new Map(threads.map((t) => [t.student.id, t.student])).values(),
-          ].filter((p) => p.id !== me.id);
+            ...new Map(
+              [
+                ...threads.map((t) => t.student),
+                ...links.flatMap((l) => l.people),
+              ].map((p) => [p.id, p]),
+            ).values(),
+          ].filter((p) => p.id !== me.id && !known.has(p.id));
           setLive((s) => ({
             ...s,
-            requests: threads.map((t) => t.request),
-            messages: threads.flatMap((t) => t.messages),
+            requests: [
+              ...threads.map((t) => t.request),
+              ...links.map((l) => l.request),
+            ],
+            messages: [
+              ...threads.flatMap((t) => t.messages),
+              ...links.flatMap((l) => l.messages),
+            ],
             resumes: resumes
               .filter((r) => r.status === "confirmed")
               .map(mapResume),
@@ -303,14 +339,20 @@ export function useBoard() {
     setSettings({ mode: "api", apiUrl: settings.apiUrl });
   }
   async function saveProfile(person: Person) {
+    let saved = person;
     if (settings.mode === "api")
-      await api.request("/persona/me", {
-        method: "PATCH",
-        body: JSON.stringify(person),
-      });
+      saved = {
+        ...mapPersona(
+          await api.request<RawPersona>("/persona/me", {
+            method: "PATCH",
+            body: JSON.stringify(person),
+          }),
+        ),
+        color: person.color,
+      };
     update((s) => ({
       ...s,
-      people: s.people.map((p) => (p.id === person.id ? person : p)),
+      people: s.people.map((p) => (p.id === saved.id ? saved : p)),
     }));
     notify("Profile saved.");
   }
@@ -400,10 +442,6 @@ export function useBoard() {
     return resume;
   }
   async function saveManualProfile(person: Person) {
-    if (settings.mode === "api" && person.role === "student") {
-      await confirmResume(person, profileResume(person));
-      return;
-    }
     await saveProfile(person);
     if (
       person.role === "student" &&
@@ -630,7 +668,8 @@ export function useBoard() {
         (r) =>
           r.kind === "connection" &&
           r.studentId === user.id &&
-          r.alumniId === person.id,
+          r.alumniId === person.id &&
+          ["pending", "accepted"].includes(r.status),
       )
     )
       throw new Error("You already have an invitation with this alum.");
@@ -646,11 +685,21 @@ export function useBoard() {
       status: "pending",
       createdAt: new Date().toISOString(),
     };
-    if (settings.mode === "api")
-      item = await api.request("/connections/requests", {
-        method: "POST",
-        body: JSON.stringify(item),
-      });
+    if (settings.mode === "api") {
+      const saved = mapConnection(
+        await api.request<RawConnection>("/connections/requests", {
+          method: "POST",
+          body: JSON.stringify({
+            alumni_id: Number(person.id),
+            purpose,
+            note,
+            topic: topic || null,
+            availability: availability || null,
+          }),
+        }),
+      );
+      item = saved.request;
+    }
     update((s) => ({ ...s, requests: [item, ...s.requests] }));
     notify("Your invitation is on its way.");
     return item;
@@ -672,10 +721,14 @@ export function useBoard() {
         notify("Response saved.");
         return;
       }
-      await api.request(`/connections/requests/${request.id}/decision`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
+      saveConnection(
+        await api.request<RawConnection>(
+          `/connections/requests/${connectionApiId(request.id)}/decision`,
+          { method: "PATCH", body: JSON.stringify({ status, reply: reply || null }) },
+        ),
+      );
+      notify("Response saved.");
+      return;
     }
     update((s) => ({
       ...s,
@@ -716,12 +769,27 @@ export function useBoard() {
       text,
       createdAt: new Date().toISOString(),
     };
-    if (settings.mode === "api")
-      message = await api.request("/messages", {
-        method: "POST",
-        body: JSON.stringify(message),
-      });
+    if (settings.mode === "api") {
+      saveConnection(
+        await api.request<RawConnection>(
+          `/connections/requests/${connectionApiId(request.id)}/messages`,
+          { method: "POST", body: JSON.stringify({ body: text }) },
+        ),
+      );
+      return;
+    }
     update((s) => ({ ...s, messages: [...s.messages, message] }));
+  }
+  function saveConnection(raw: RawConnection) {
+    const { request, messages } = mapConnection(raw);
+    update((s) => ({
+      ...s,
+      requests: s.requests.map((r) => (r.id === request.id ? request : r)),
+      messages: [
+        ...s.messages.filter((m) => m.requestId !== request.id),
+        ...messages,
+      ],
+    }));
   }
   function saveThread(raw: RawRequest) {
     const thread = mapThread(raw);

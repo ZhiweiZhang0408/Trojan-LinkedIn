@@ -1,4 +1,4 @@
-# Trojan Board frontend
+# TrojanLink frontend
 
 Run `npm ci` and `npm run dev` from this directory. Open the local URL printed by Vite. `npm run build` checks types and produces the production build.
 

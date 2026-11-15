@@ -52,7 +52,7 @@ export function Connections({
           <h1>Connections</h1>
           <span className="count-pill">{filtered.length}</span>
         </div>
-        {b.user?.role === "alumni" && b.settings.mode === "demo" && (
+        {b.user?.role === "alumni" && (
           <Button variant="secondary" onClick={() => open({ type: "profile" })}>
             Edit availability
           </Button>

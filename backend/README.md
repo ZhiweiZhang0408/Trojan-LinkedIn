@@ -80,6 +80,15 @@ Afterwards: POST /auth/login (email + password); unverified accounts get 403 {"d
 | POST | `/resumes/{id}/tailor/{run_id}/apply` | owner | `{accepted: [indexes], label?}` → new tailored version + per-suggestion `results` (applied / why skipped) |
 | POST | `/job-requests/{id}/ai-review` | the role's alum | `?refresh=` → `summary`, per-requirement `status` (`evidence_found` / `partial_evidence` / `information_missing`) with verbatim `evidence`, `follow_up_questions`. Uses the submitted snapshot; cached |
 | GET | `/job-requests/{id}/ai-review` | the role's alum | latest stored review (404 if none) |
+| GET | `/persona/me` | logged in | your profile: `User` fields + `bio`, `skills`, `experience`, `education`, `projects`, `location`, `open_to_connect`, `coffee_chats`, `scheduling_url`, `discoverable` |
+| PATCH | `/persona/me` | logged in | edit your profile; accepts the frontend `Person` JSON (camelCase) or snake_case; `title`/`company`/`program`/`year` update `User` |
+| GET | `/persona/{user_id}` | public | a profile; `email` only for yourself or an accepted connection |
+| GET | `/connections/alumni` | public | discoverable alumni with profiles; `?q=`, `?company=`, `?coffee_chats=` |
+| GET | `/connections/requests` | logged in | invitations you sent or received, with messages |
+| POST | `/connections/requests` | student | `{alumni_id\|alumniId, purpose: connection\|coffee, note, topic?, availability?}`; one active invitation per pair (409) |
+| PATCH | `/connections/requests/{id}/decision` | invited alum | `{status: accepted\|declined, reply?}` |
+| PATCH | `/connections/requests/{id}` | participant | `{action: withdraw}` (student, pending) or `{action: remove}` (accepted) |
+| POST | `/connections/requests/{id}/messages` | participant | `{body}`; only after acceptance |
 
 Resume content shape (shared by manual entry, import, tailoring, and AI review — see `ResumeContent` in `app/schemas.py`):
 ```json
