@@ -209,8 +209,9 @@ export const mapUser = (u: RawUser): Person => ({
   openToConnect: false,
   coffeeChats: false,
   schedulingUrl: "",
-  color: "rose",
+  color: avatarColors[u.id % avatarColors.length],
 });
+const avatarColors = ["rose", "sand", "sage", "lavender", "peach"];
 export const mapJob = (j: RawJob): Job => ({
   id: String(j.id),
   title: j.role_title,
@@ -278,3 +279,77 @@ export const jobBody = (j: Job) => ({
   deadline: j.deadline || null,
   referral_available: j.referralAvailable,
 });
+
+// ---------- Persona (profiles) and connections ----------
+export interface RawPersona extends RawUser {
+  email?: string;
+  bio: string | null;
+  skills: string[];
+  experience: string | null;
+  education: string | null;
+  projects: string | null;
+  location: string | null;
+  open_to_connect: boolean;
+  coffee_chats: boolean;
+  scheduling_url: string | null;
+  discoverable: boolean;
+}
+export const mapPersona = (raw: RawPersona): Person => ({
+  ...mapUser(raw),
+  email: raw.email || "",
+  location: raw.location || "",
+  bio: raw.bio || "",
+  skills: raw.skills || [],
+  experience: raw.experience || "",
+  education: raw.education || "",
+  projects: raw.projects || "",
+  openToConnect: raw.open_to_connect,
+  coffeeChats: raw.coffee_chats,
+  schedulingUrl: raw.scheduling_url || "",
+});
+export interface RawConnection {
+  id: number;
+  student: RawUser;
+  alumni: RawUser;
+  purpose: "connection" | "coffee";
+  note: string;
+  topic: string | null;
+  availability: string | null;
+  status: "pending" | "accepted" | "declined" | "withdrawn" | "removed";
+  created_at: string;
+  updated_at: string;
+  messages: { id: number; sender_id: number; body: string; created_at: string }[];
+}
+// Connection ids get a prefix so they never collide with job request ids in one list.
+export const connectionKey = (id: number) => `c${id}`;
+export const connectionApiId = (key: string) => key.replace(/^c/, "");
+export function mapConnection(raw: RawConnection): {
+  request: RequestItem;
+  messages: Message[];
+  people: Person[];
+} {
+  const id = connectionKey(raw.id);
+  return {
+    request: {
+      id,
+      kind: "connection",
+      studentId: String(raw.student.id),
+      alumniId: String(raw.alumni.id),
+      purpose: raw.purpose,
+      note: raw.note,
+      topic: raw.topic || undefined,
+      availability: raw.availability || undefined,
+      status: raw.status === "removed" ? "closed" : raw.status,
+      readOnly: !["pending", "accepted"].includes(raw.status),
+      createdAt: raw.created_at,
+    },
+    messages: raw.messages.map((m) => ({
+      id: `cm${m.id}`,
+      requestId: id,
+      senderId: String(m.sender_id),
+      text: m.body,
+      createdAt: m.created_at,
+    })),
+    people: [mapUser(raw.student), mapUser(raw.alumni)],
+  };
+}

@@ -60,7 +60,7 @@ export function Profile({
     );
   const user = b.user,
     alum = user.role === "alumni";
-  const canEditProfile = b.settings.mode === "demo";
+  const canEditProfile = true;
   const requests = b.state.requests.filter(
     (r) => r.studentId === user.id || r.alumniId === user.id,
   );

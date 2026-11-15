@@ -686,7 +686,7 @@ function ProfileForm({ board: b, close }: FormProps) {
   }
   return (
     <Dialog
-      title={b.settings.mode === "api" ? "Create resume" : "Edit profile"}
+      title="Edit profile"
       onClose={close}
       wide
     >
@@ -775,7 +775,7 @@ function ProfileForm({ board: b, close }: FormProps) {
             Cancel
           </Button>
           <Button type="submit" busy={busy}>
-            {b.settings.mode === "api" ? "Save resume" : "Save profile"}
+            Save profile
             <Check size={16} />
           </Button>
         </footer>
@@ -1643,7 +1643,7 @@ function PersonDetail({
         )}
       </div>
       <footer className="dialog-footer">
-        {own && b.settings.mode === "demo" ? (
+        {own ? (
           <Button variant="secondary" onClick={() => open({ type: "profile" })}>
             Edit your profile
           </Button>
