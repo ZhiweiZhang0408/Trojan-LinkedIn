@@ -113,7 +113,7 @@ export function Auth({
             ? "Verify your email"
             : signUp
               ? "Create your account"
-              : "Sign in to Trojan Board"}
+              : "Sign in to TrojanLink"}
         </h1>
         {verify && (
           <p className="auth-help">
