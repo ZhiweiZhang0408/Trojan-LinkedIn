@@ -152,6 +152,13 @@ def _call_model(system: str, user: str, schema: type[BaseModel], effort: str | N
     except anthropic.AnthropicError as exc:  # e.g. no credentials found at all
         log.error("AI client error: %s", exc)
         raise AIUnavailable("AI is not configured on the server") from exc
+    except TypeError as exc:
+        # With no API key or credentials the SDK raises TypeError("Could not resolve
+        # authentication method ...") instead of an AnthropicError; report it as a 503.
+        if "authentication" not in str(exc).lower():
+            raise
+        log.error("AI is not configured: set ANTHROPIC_API_KEY (%s)", exc)
+        raise AIUnavailable("AI is not configured on the server") from exc
 
     if response.stop_reason == "refusal":
         raise AIUnavailable("AI could not help with this request")

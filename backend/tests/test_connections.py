@@ -63,9 +63,11 @@ def test_invitation_lifecycle_and_messages():
                        headers=other_alum).status_code == 404
         assert c.get("/connections/requests", headers=other_alum).json() == []
 
+        assert c.get("/connections/requests", headers=student).json()[0]["alumni_email"] is None
         r = c.patch(f"/connections/requests/{cid}/decision",
                     json={"status": "accepted", "reply": "Sounds great"}, headers=alum)
         assert r.status_code == 200 and r.json()["status"] == "accepted"
+        assert r.json()["alumni_email"].startswith("alum.") and r.json()["student_email"].startswith("student.")
         assert [m["body"] for m in r.json()["messages"]] == ["Sounds great"]
         assert c.patch(f"/connections/requests/{cid}/decision", json={"status": "declined"},
                        headers=alum).status_code == 409

@@ -33,18 +33,22 @@ PROFILES = {
         bio="CS junior at USC Viterbi who likes building reliable backend systems. Interned on a "
             "logistics data platform, built a Raft key-value store in Go, and works as a student "
             "developer for Viterbi IT.",
-        skills=["Go", "Python", "SQL", "Kafka", "Docker", "Distributed systems"],
+        skills=["Go", "Python", "Java", "C++", "TypeScript", "SQL", "FastAPI", "React", "gRPC",
+                "Kafka", "Redis", "PostgreSQL", "Docker", "Git", "Linux", "AWS (EC2/S3/RDS)",
+                "GitHub Actions", "OpenTelemetry"],
         experience="Software Engineering Intern, Ridgeline Logistics (May 2025 – Aug 2025)\n"
                    "Student Developer, USC Viterbi IT (Sep 2024 – Present)\n"
-                   "Course Producer, CSCI 104 Data Structures (Jan 2025 – May 2025)",
+                   "Course Producer, CSCI 104 Data Structures (Jan 2025 – May 2025)\n"
+                   "Software Lead, Trojan Robotics Club (Jan 2024 – Aug 2024)",
         education="University of Southern California · B.S. Computer Science · May 2027",
         projects="Distributed Key-Value Store (Go, gRPC)\nTrojanEats (React, TypeScript)\n"
                  "Bus Arrival Predictor (Python, scikit-learn)",
         location="Los Angeles, CA",
     ),
     "taylor": dict(
-        bio="Business Analytics student interested in product and marketing analytics.",
-        skills=["SQL", "Tableau", "Excel", "A/B testing"],
+        bio="Business Analytics senior with a product management internship at CareLoop.",
+        skills=["SQL", "Figma", "Product discovery", "A/B testing"],
+        experience="Product Management Intern, CareLoop (Jun 2025 – Aug 2025)",
         education="University of Southern California · B.S. Business Analytics · May 2026",
         location="Los Angeles, CA",
     ),

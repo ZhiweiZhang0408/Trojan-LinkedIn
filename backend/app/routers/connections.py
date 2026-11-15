@@ -55,6 +55,9 @@ class ConnectionOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     messages: list[ConnectionMessageOut]
+    # Shared with both participants only once the invitation is accepted
+    student_email: str | None = None
+    alumni_email: str | None = None
 
 
 class ConnectionCreate(BaseModel):
@@ -91,9 +94,16 @@ def _get_mine(db: Session, connection_id: int, user: User) -> Connection:
     return c
 
 
+def _view(c: Connection) -> ConnectionOut:
+    out = ConnectionOut.model_validate(c)
+    if c.status == ConnectionStatus.accepted:
+        out.student_email, out.alumni_email = c.student.email, c.alumni.email
+    return out
+
+
 def _out(db: Session, c: Connection) -> ConnectionOut:
     db.refresh(c)
-    return ConnectionOut.model_validate(c)
+    return _view(c)
 
 
 # ---------- Directory ----------
@@ -135,7 +145,7 @@ def my_invitations(user: User = Depends(get_current_user), db: Session = Depends
         .where(or_(Connection.student_id == user.id, Connection.alumni_id == user.id))
         .order_by(Connection.updated_at.desc(), Connection.id.desc())
     )
-    return [ConnectionOut.model_validate(c) for c in rows]
+    return [_view(c) for c in rows]
 
 
 @router.post("/requests", response_model=ConnectionOut, status_code=status.HTTP_201_CREATED)

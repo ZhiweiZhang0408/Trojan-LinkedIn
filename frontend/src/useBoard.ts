@@ -191,6 +191,9 @@ export function useBoard() {
           const profile = base ? profileFromResume(me, base.content) : me;
           const threads = requests.map(mapThread);
           const links = invitations.map(mapConnection);
+          const emails = new Map(
+            links.flatMap((l) => l.people).filter((p) => p.email).map((p) => [p.id, p.email]),
+          );
           const known = new Set(alumni.map((a) => a.id));
           const students = [
             ...new Map(
@@ -214,11 +217,15 @@ export function useBoard() {
               .filter((r) => r.status === "confirmed")
               .map(mapResume),
             people: [
-              ...s.people.filter(
-                (p) =>
-                  p.id !== me.id &&
-                  !students.some((student) => student.id === p.id),
-              ),
+              ...s.people
+                .filter(
+                  (p) =>
+                    p.id !== me.id &&
+                    !students.some((student) => student.id === p.id),
+                )
+                .map((p) =>
+                  emails.has(p.id) ? { ...p, email: emails.get(p.id)! } : p,
+                ),
               profile,
               ...students,
             ],
@@ -781,9 +788,13 @@ export function useBoard() {
     update((s) => ({ ...s, messages: [...s.messages, message] }));
   }
   function saveConnection(raw: RawConnection) {
-    const { request, messages } = mapConnection(raw);
+    const { request, messages, people } = mapConnection(raw);
     update((s) => ({
       ...s,
+      people: s.people.map((p) => {
+        const known = people.find((x) => x.id === p.id && x.email);
+        return known ? { ...p, email: known.email } : p;
+      }),
       requests: s.requests.map((r) => (r.id === request.id ? request : r)),
       messages: [
         ...s.messages.filter((m) => m.requestId !== request.id),
