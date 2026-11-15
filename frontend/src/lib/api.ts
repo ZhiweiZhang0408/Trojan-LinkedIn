@@ -319,6 +319,8 @@ export interface RawConnection {
   created_at: string;
   updated_at: string;
   messages: { id: number; sender_id: number; body: string; created_at: string }[];
+  student_email: string | null;
+  alumni_email: string | null;
 }
 // Connection ids get a prefix so they never collide with job request ids in one list.
 export const connectionKey = (id: number) => `c${id}`;
@@ -350,6 +352,9 @@ export function mapConnection(raw: RawConnection): {
       text: m.body,
       createdAt: m.created_at,
     })),
-    people: [mapUser(raw.student), mapUser(raw.alumni)],
+    people: [
+      { ...mapUser(raw.student), email: raw.student_email || "" },
+      { ...mapUser(raw.alumni), email: raw.alumni_email || "" },
+    ],
   };
 }

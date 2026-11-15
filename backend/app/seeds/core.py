@@ -124,22 +124,76 @@ def seed_core(db: Session) -> dict[str, User]:
     db.flush()
 
     # ---- Resumes ----
+    # Same fictional resume as the demo PDF/DOCX, so the profile, resume and AI demos agree
     alex_base = Resume(owner=alex, label="Base resume", status=ResumeStatus.confirmed, content={
-        "contact": {"name": "Alex Kim", "email": "alex.kim@usc.edu", "location": "Los Angeles, CA",
-                    "linkedin": "https://example.com/in/alex-kim"},
-        "summary": "CS junior interested in distributed systems and backend infrastructure.",
-        "education": [{"school": "University of Southern California", "degree": "B.S.",
-                       "major": "Computer Science", "start": "Aug 2023", "end": "May 2027",
-                       "gpa": "3.7", "details": ["Coursework: Operating Systems, Distributed Systems"]}],
-        "experience": [{"company": "USC Viterbi IT", "title": "Student Developer",
-                        "location": "Los Angeles, CA", "start": "Sep 2024", "end": "Present",
-                        "bullets": ["Built a Python service that syncs lab reservations for 1,200 students",
-                                    "Cut nightly job runtime from 40 to 12 minutes"]}],
-        "projects": [{"name": "Toy distributed KV store", "role": "Solo project",
-                      "link": "https://example.com/alex/kv",
-                      "bullets": ["Raft-based replication in Go across 5 nodes",
-                                  "Wrote a fault-injection test harness"]}],
-        "skills": ["Go", "Python", "SQL", "Docker", "Linux"],
+        "contact": {"name": "Alex Kim", "email": "alex.kim@usc.edu", "phone": "(213) 555-0142",
+                    "location": "Los Angeles, CA", "linkedin": "linkedin.com/in/alex-kim-demo",
+                    "website": "github.com/alexkim-demo"},
+        "summary": "CS junior at USC Viterbi who likes building reliable backend systems. Interned on "
+                   "a logistics data platform, built a Raft key-value store in Go, and works as a "
+                   "student developer for Viterbi IT.",
+        "education": [{"school": "University of Southern California, Viterbi School of Engineering",
+                       "degree": "B.S.", "major": "Computer Science", "start": "Aug 2023",
+                       "end": "May 2027", "gpa": "3.72",
+                       "details": ["Coursework: Operating Systems, Distributed Systems, Database Systems, "
+                                   "Algorithms, Computer Networks",
+                                   "Honors: Dean's List (4 semesters), Viterbi Merit Scholarship"]}],
+        "experience": [
+            {"company": "Ridgeline Logistics", "title": "Software Engineering Intern",
+             "location": "San Diego, CA", "start": "May 2025", "end": "Aug 2025",
+             "bullets": ["Built a Go service that streams shipment status events from Kafka into "
+                         "PostgreSQL, handling about 3M events per day",
+                         "Reduced p95 latency of the tracking API from 480 ms to 190 ms by adding Redis "
+                         "caching and removing N+1 queries",
+                         "Added OpenTelemetry tracing across 4 services, helping the on-call team find "
+                         "the failing hop in minutes",
+                         "Wrote integration tests with Testcontainers, raising routing module coverage "
+                         "from 41% to 78%"]},
+            {"company": "USC Viterbi IT", "title": "Student Developer",
+             "location": "Los Angeles, CA", "start": "Sep 2024", "end": "Present",
+             "bullets": ["Built a Python (FastAPI) service that syncs lab reservations for 1,200+ "
+                         "students across 14 labs",
+                         "Cut the nightly sync job from 40 to 12 minutes by batching database writes "
+                         "and parallelizing API calls",
+                         "Containerized 3 legacy cron jobs with Docker and moved them to a monitored "
+                         "scheduler"]},
+            {"company": "USC Department of Computer Science",
+             "title": "Course Producer, CSCI 104 Data Structures",
+             "location": "Los Angeles, CA", "start": "Jan 2025", "end": "May 2025",
+             "bullets": ["Ran weekly labs for 30 students on C++ linked lists, heaps, and hash tables",
+                         "Held 4 hours of office hours per week and graded 120+ homework submissions "
+                         "with written feedback"]},
+            {"company": "Trojan Robotics Club", "title": "Software Lead",
+             "location": "Los Angeles, CA", "start": "Jan 2024", "end": "Aug 2024",
+             "bullets": ["Led 5 students building ROS 2 navigation for a campus delivery robot, "
+                         "completing 40+ autonomous test runs",
+                         "Set up GitHub Actions CI and a code review process, ending a pattern of "
+                         "broken builds on main"]},
+        ],
+        "projects": [
+            {"name": "Distributed Key-Value Store", "role": "Go, gRPC, Docker",
+             "link": "github.com/alexkim-demo/kv", "start": "Jan 2025", "end": "Apr 2025",
+             "bullets": ["Implemented Raft leader election, log replication, and snapshotting across "
+                         "a 5-node cluster",
+                         "Built a fault-injection harness for network partitions and node crashes that "
+                         "found 3 leader-election bugs",
+                         "Sustained 12k writes per second with linearizable reads on a local 5-node cluster"]},
+            {"name": "TrojanEats", "role": "React, TypeScript, Node.js, PostgreSQL",
+             "link": "github.com/alexkim-demo/trojaneats", "start": "Sep 2024", "end": "Dec 2024",
+             "bullets": ["Web app showing which campus dining halls are open and what they serve; "
+                         "600+ weekly users in fall 2024",
+                         "Designed the PostgreSQL schema and a scheduled scraper that ingests menus "
+                         "from 9 dining halls"]},
+            {"name": "Bus Arrival Predictor", "role": "Python, pandas, scikit-learn",
+             "link": "github.com/alexkim-demo/metro-eta", "start": "Mar 2024", "end": "May 2024",
+             "bullets": ["Trained a gradient-boosted model on 2M public LA Metro GPS records to "
+                         "predict bus arrival delays",
+                         "Lowered mean absolute error from 4.1 to 2.3 minutes compared with the "
+                         "schedule-only baseline"]},
+        ],
+        "skills": ["Go", "Python", "Java", "C++", "TypeScript", "SQL", "FastAPI", "React", "gRPC",
+                   "Kafka", "Redis", "PostgreSQL", "Docker", "Git", "Linux", "AWS (EC2/S3/RDS)",
+                   "GitHub Actions", "OpenTelemetry"],
     })
     taylor_base = Resume(owner=taylor, label="Base resume", status=ResumeStatus.confirmed, content={
         "contact": {"name": "Taylor Brooks", "email": "taylor.brooks@usc.edu"},

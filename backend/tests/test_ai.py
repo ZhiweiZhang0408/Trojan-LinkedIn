@@ -179,3 +179,20 @@ def test_frontend_contract(monkeypatch):
         assert [e["status"] for e in rev["evidence"]] == ["found", "partial", "missing"]
         assert rev["evidence"][0]["evidence"].startswith('"Raft-based')
         assert rev["questions"] and len(rev["questions"]) <= 5
+
+
+def test_missing_api_key_is_a_clear_503(monkeypatch):
+    """The SDK raises TypeError when no credentials exist; that must not become a 500."""
+    import pytest
+
+    class NoAuthClient:
+        class beta:
+            class messages:
+                @staticmethod
+                def parse(**_):
+                    raise TypeError('"Could not resolve authentication method. Expected one of api_key, '
+                                    'auth_token, or credentials to be set."')
+
+    monkeypatch.setattr(ai_review, "_get_client", lambda: NoAuthClient)
+    with pytest.raises(ai_review.AIUnavailable, match="not configured"):
+        ai_review._call_model("system", "user", ai_review.TailorOutput)

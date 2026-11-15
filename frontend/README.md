@@ -8,4 +8,6 @@ For backend integration, start the team's local FastAPI service. The app uses `V
 
 The connected frontend supports jobs, PDF/DOCX import, resume confirmation and versions, original attachments, referrals, request statuses, and thread messages. AI tailoring (`POST /resumes/{id}/tailor`) and alumni review (`POST /ai/request-review`) use the backend's Claude integration. AI message drafts for referrals, questions, connection invites, and replies call `POST /ai/draft-message`. Any resume version can be exported as a PDF in the browser.
 
-The backend does not yet store profile fields or connection invitations. In connected mode, a student's profile is filled from their confirmed base resume, and connection invitations are available with sample data only.
+Profiles (`/persona/*`) and Connections (`/connections/*`: alumni directory, connection and coffee chat invitations, decisions, and messages) are served by the backend too. A student's profile falls back to their confirmed base resume for any field they haven't filled in.
+
+For hosting, `scripts/replit-build.sh` builds this app with `VITE_HOSTED=true`: it then talks to the origin that serves it (`backend/serve.py`), starts in connected mode, and the sign-in page's demo accounts log in to the seeded users.
