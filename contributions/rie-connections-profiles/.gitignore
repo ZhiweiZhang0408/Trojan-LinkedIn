@@ -1,0 +1,30 @@
+# Secrets and local config
+.env
+.env.local
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.db
+*.sqlite3
+
+# Node
+node_modules/
+dist/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Uploaded resumes (local only)
+backend/uploads/
+
+# Coverage reports
+.coverage
+htmlcov/

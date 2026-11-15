@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Public Sans", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+
+  --color-cardinal-50: #fbf0f1;
+  --color-cardinal-100: #f5dadd;
+  --color-cardinal-200: #e9b1b8;
+  --color-cardinal-500: #a8283a;
+  --color-cardinal-600: #8a1c2b;
+  --color-cardinal-700: #731726;
+  --color-cardinal-800: #5e1220;
+  --color-cardinal-900: #420c16;
+
+  --color-gold-100: #fdf1d6;
+  --color-gold-200: #fbe2a8;
+  --color-gold-300: #f8cf6e;
+  --color-gold-400: #f4b740;
+  --color-gold-600: #855706; /* 5.6:1 on gold-100 (WCAG AA) */
+
+  --color-ink: #1e1b1d;
+  --color-stone: #675f63;
+  --color-line: #e6e0e2;
+  --color-canvas: #f5f2f3;
+
+  --shadow-lift: 0 1px 2px rgb(66 12 22 / 0.06), 0 8px 24px -12px rgb(66 12 22 / 0.18);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-canvas font-sans text-ink;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tight;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-gold-400);
+    outline-offset: 2px;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.toast-in {
+  animation: toast-in 180ms ease-out;
+}
+
+@keyframes arc-draw {
+  from {
+    stroke-dashoffset: var(--arc-len);
+  }
+}
+.arc-draw {
+  animation: arc-draw 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-in,
+  .arc-draw {
+    animation: none;
+  }
+}
