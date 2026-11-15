@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  ArrowUpRight,
   BriefcaseBusiness,
   CheckCircle2,
-  ChevronDown,
   CircleAlert,
   LoaderCircle,
+  LogOut,
   RefreshCw,
   Settings2,
   UserRound,
@@ -14,39 +13,107 @@ import {
 } from "lucide-react";
 import { useBoard } from "./useBoard";
 import type { ModalState, Tab } from "./types";
-import { Avatar } from "./components/ui";
-import { Dialogs } from "./components/Dialogs";
+import { Avatar, Button } from "./components/ui";
+import { Dialogs, modalKey } from "./components/Dialogs";
+import { Auth, type AuthPage } from "./pages/Auth";
 import { Jobs } from "./pages/Jobs";
 import { Connections } from "./pages/Connections";
 import { Profile } from "./pages/Profile";
-function readTab(): Tab {
-  const value = location.hash.slice(1).split("/")[0];
-  return ["jobs", "connections", "profile"].includes(value)
-    ? (value as Tab)
+
+type Route = Tab | AuthPage;
+type Pane = NonNullable<ModalState>;
+const forms = new Set<Pane["type"]>([
+  "compose",
+  "resume",
+  "tailor",
+  "connect",
+  "post",
+  "profile",
+]);
+const authRoutes = ["signin", "signup", "verify"] as const;
+function isAuth(route: Route): route is AuthPage {
+  return authRoutes.some((value) => value === route);
+}
+function readRoute(): Route {
+  const route = location.hash.slice(1).split("/")[0];
+  return ["jobs", "connections", "profile", ...authRoutes].includes(route)
+    ? (route as Route)
     : "jobs";
 }
+
 export default function App() {
-  const board = useBoard(),
-    [tab, setTab] = useState<Tab>(readTab),
-    [modal, setModal] = useState<ModalState>(null);
+  const board = useBoard();
+  const [route, setRoute] = useState<Route>(readRoute);
+  const [nav, setNav] = useState<{ modal: ModalState; back: Pane[] }>({
+    modal: null,
+    back: [],
+  });
+  const navRef = useRef(nav);
+  navRef.current = nav;
+  const modal = nav.modal;
+  const setModal = (next: ModalState) => {
+    navRef.current = { modal: next, back: [] };
+    setNav(navRef.current);
+  };
+  const [afterSignIn, setAfterSignIn] = useState<Tab>("jobs");
+
   useEffect(() => {
-    const change = () => setTab(readTab());
+    const change = () => {
+      setRoute(readRoute());
+      setModal(null);
+    };
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
   }, []);
-  function navigate(next: Tab) {
-    setTab(next);
-    location.hash = next;
+
+  function navigate(next: Route) {
+    setRoute(next);
+    if (location.hash !== `#${next}`) location.hash = next;
     setModal(null);
     window.scrollTo({ top: 0, behavior: "instant" });
   }
-  function identity(id: string) {
-    board.switchIdentity(id);
-    setModal(null);
+
+  function startSignIn() {
+    setAfterSignIn(isAuth(route) ? "jobs" : route);
+    navigate("signin");
   }
+
+  // Pane history: Cancel and close return to the previous view.
+  function closeModal() {
+    const { back } = navRef.current;
+    const next = { modal: back[back.length - 1] || null, back: back.slice(0, -1) };
+    navRef.current = next;
+    setNav(next);
+  }
+  function open(next: ModalState, options?: { root?: boolean }) {
+    if (next?.type === "login") return startSignIn();
+    if (!next) return setModal(null);
+    const current = navRef.current;
+    let back =
+      options?.root || !current.modal ? [] : [...current.back, current.modal];
+    // Leaving a form for a view (for example after sending) drops the form.
+    if (!forms.has(next.type)) back = back.filter((m) => !forms.has(m.type));
+    const key = modalKey(next);
+    const seen = back.findIndex((m) => modalKey(m) === key);
+    if (seen >= 0) back = back.slice(0, seen);
+    navRef.current = { modal: next, back };
+    setNav(navRef.current);
+  }
+
+  const authPage = isAuth(route);
+  const showWorkspaceSettings =
+    new URLSearchParams(location.search).get("workspace") === "settings";
+  const demo = board.settings.mode === "demo";
   return (
     <>
-      <a className="skip-link" href="#main-content">
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}
+      >
         Skip to content
       </a>
       <header className="app-header">
@@ -56,144 +123,129 @@ export default function App() {
             onClick={() => navigate("jobs")}
             aria-label="Trojan Board home"
           >
-            <span className="brand-symbol">T</span>
+            <span className="brand-symbol" aria-hidden="true">
+              T
+            </span>
             <span>
-              trojan<span className="brand-light">board</span>
-              <small>OPPORTUNITY THROUGH COMMUNITY</small>
+              Trojan <span className="brand-light">Board</span>
             </span>
           </button>
-          <nav aria-label="Main navigation">
-            {(
-              [
-                { id: "jobs", label: "Job Posts", Icon: BriefcaseBusiness },
-                { id: "connections", label: "Connections", Icon: UsersRound },
-                { id: "profile", label: "Profile", Icon: UserRound },
-              ] as const
-            ).map(({ id, label, Icon }) => (
-              <button
-                key={id}
-                className={tab === id ? "active" : ""}
-                aria-current={tab === id ? "page" : undefined}
-                onClick={() => navigate(id)}
-              >
-                <Icon size={17} />
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="header-actions">
-            <button
-              className="icon-button settings-button"
-              title="Workspace settings"
-              aria-label="Workspace settings"
-              onClick={() => setModal({ type: "settings" })}
-            >
-              <Settings2 size={18} />
-            </button>
-            {board.settings.mode === "demo" ? (
-              <label className="identity-selector">
-                <Avatar person={board.user} size="sm" />
-                <div>
-                  <span>{board.user?.name.split(" ")[0] || "Demo"}</span>
-                  <small>
-                    {board.user?.role === "alumni"
-                      ? "Alumni view"
-                      : "Student view"}
-                  </small>
-                </div>
-                <ChevronDown size={13} />
-                <select
-                  aria-label="Demo identity"
-                  value={board.activeId}
-                  onChange={(e) => identity(e.target.value)}
+          {!authPage && (
+            <nav aria-label="Main navigation">
+              {(
+                [
+                  { id: "jobs", label: "Job Posts", Icon: BriefcaseBusiness },
+                  { id: "connections", label: "Connections", Icon: UsersRound },
+                  { id: "profile", label: "Profile", Icon: UserRound },
+                ] as const
+              ).map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  className={route === id ? "active" : ""}
+                  aria-current={route === id ? "page" : undefined}
+                  onClick={() => navigate(id)}
                 >
-                  {board.state.people
-                    .filter((p) => ["alex", "maya", "jordan"].includes(p.id))
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} — {p.role}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            ) : (
+                  <Icon size={17} />
+                  {label}
+                </button>
+              ))}
+            </nav>
+          )}
+          <div className="header-actions">
+            {!authPage && board.user && (
+              <>
+                {!demo && (
+                  <button
+                    className="icon-button"
+                    aria-label="Refresh data"
+                    title="Refresh data"
+                    disabled={board.loading}
+                    onClick={() => void board.refresh()}
+                  >
+                    <RefreshCw
+                      size={17}
+                      className={board.loading ? "spin" : ""}
+                    />
+                  </button>
+                )}
+                <button
+                  className="account-button"
+                  onClick={() => navigate("profile")}
+                  aria-label={`View profile for ${board.user.name}`}
+                >
+                  <Avatar person={board.user} size="sm" />
+                  <span>{board.user.name.split(" ")[0]}</span>
+                </button>
+                <button
+                  className="icon-button"
+                  title="Sign out"
+                  aria-label="Sign out"
+                  onClick={() => {
+                    board.signOut();
+                    navigate("jobs");
+                  }}
+                >
+                  <LogOut size={18} />
+                </button>
+              </>
+            )}
+            {showWorkspaceSettings && (
               <button
-                className="button secondary"
-                onClick={() =>
-                  setModal(
-                    board.user ? { type: "settings" } : { type: "login" },
-                  )
-                }
+                className="icon-button settings-button"
+                title="Workspace settings"
+                aria-label="Workspace settings"
+                onClick={() => open({ type: "settings" })}
               >
-                {board.user?.name.split(" ")[0] || "Sign in"}
+                <Settings2 size={18} />
               </button>
+            )}
+            {!authPage && !board.user && (
+              <Button variant="secondary" onClick={startSignIn}>
+                Sign in
+              </Button>
             )}
           </div>
         </div>
       </header>
-      <div className="workspace-strip">
-        <div>
-          <span className="workspace-dot" />
-          <span>
-            {board.settings.mode === "demo"
-              ? "LOCAL DEMO"
-              : "CONNECTED WORKSPACE"}
-          </span>
-          <span className="strip-separator">/</span>
-          <span>
-            {board.settings.mode === "demo"
-              ? "Fictional people. Real interactions. Saved in your browser."
-              : "Using your configured backend."}
-          </span>
-        </div>
-        {board.settings.mode === "api" && (
-          <button onClick={() => void board.refresh()} disabled={board.loading}>
-            <RefreshCw size={12} className={board.loading ? "spin" : ""} />
-            Refresh
-          </button>
-        )}
-      </div>
-      <main id="main-content" className="main-container">
-        {!board.ready ? (
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className={authPage ? "auth-main" : "main-container"}
+      >
+        {authPage ? (
+          <Auth
+            board={board}
+            page={route}
+            navigate={navigate}
+            onSuccess={() => navigate(afterSignIn)}
+            onBack={() => navigate("jobs")}
+          />
+        ) : !board.ready ? (
           <div className="app-loading">
             <LoaderCircle className="spin" />
-            Opening your workspace…
+            Loading…
           </div>
-        ) : tab === "jobs" ? (
-          <Jobs board={board} open={setModal} />
-        ) : tab === "connections" ? (
-          <Connections board={board} open={setModal} />
+        ) : route === "jobs" ? (
+          <Jobs board={board} modal={modal} open={open} close={closeModal} />
+        ) : route === "connections" ? (
+          <Connections
+            board={board}
+            modal={modal}
+            open={open}
+            close={closeModal}
+          />
         ) : (
           <Profile
             key={board.user?.id || "guest"}
             board={board}
-            open={setModal}
+            modal={modal}
+            open={open}
+            close={closeModal}
           />
         )}
       </main>
-      <footer className="app-footer">
-        <span>
-          <span className="footer-mark">T</span>Made for the Trojan community.
-        </span>
-        <span>
-          USC hackathon prototype <span>·</span> 2026 <ArrowUpRight size={12} />
-        </span>
-      </footer>
-      {modal && (
-        <Dialogs
-          key={
-            modal.type +
-            (modal.type === "thread"
-              ? modal.request.id
-              : modal.type === "person"
-                ? modal.person.id
-                : "")
-          }
-          board={board}
-          modal={modal}
-          open={setModal}
-          close={() => setModal(null)}
-        />
+      {modal?.type === "settings" && (
+        <Dialogs board={board} modal={modal} open={open} close={closeModal} />
       )}
       <div className="toast-region" aria-live="polite">
         {board.toast && (

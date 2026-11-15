@@ -19,19 +19,38 @@ export const seedPeople: Person[] = [
     name: "Alex Kim",
     role: "student",
     email: "alex.kim@usc.edu",
-    program: "MS Business Analytics",
+    program: "B.S. Computer Science",
     year: 2027,
     company: "",
-    title: "Graduate student",
+    title: "CS junior · Backend and distributed systems",
     location: "Los Angeles, CA",
-    bio: "Turning data into useful decisions. Exploring analytics and product opportunities with teams that care about their users.",
-    skills: ["SQL", "Python", "Tableau", "Data analysis"],
+    bio: "CS junior at USC Viterbi who likes building reliable backend systems. Interned on a logistics data platform, built a Raft key-value store in Go, and works as a student developer for Viterbi IT.",
+    skills: [
+      "Go",
+      "Python",
+      "Java",
+      "C++",
+      "TypeScript",
+      "SQL",
+      "FastAPI",
+      "React",
+      "gRPC",
+      "Kafka",
+      "Redis",
+      "PostgreSQL",
+      "Docker",
+      "Git",
+      "Linux",
+      "AWS (EC2/S3/RDS)",
+      "GitHub Actions",
+      "OpenTelemetry",
+    ],
     experience:
-      "Analyzed product usage data with SQL and built Tableau dashboards to communicate trends to a project team.",
+      "Software Engineering Intern, Ridgeline Logistics (May–Aug 2025): built a Go service streaming 3M shipment events per day from Kafka into PostgreSQL and cut tracking API p95 latency from 480 ms to 190 ms.\nStudent Developer, USC Viterbi IT (Sep 2024–present): built a FastAPI reservation sync for 1,200+ students and cut the nightly job from 40 to 12 minutes.\nCourse Producer, CSCI 104 Data Structures (Jan–May 2025).\nSoftware Lead, Trojan Robotics Club (Jan–Aug 2024).",
     education:
-      "University of Southern California — MS Business Analytics, 2027",
+      "University of Southern California, Viterbi School of Engineering — B.S. Computer Science, GPA 3.72, May 2027",
     projects:
-      "Built a Python analysis of public transportation data and presented findings in an interactive dashboard.",
+      "Distributed Key-Value Store (Go, gRPC): Raft replication across 5 nodes; a fault-injection harness found 3 leader-election bugs.\nTrojanEats (React, TypeScript, PostgreSQL): campus dining app with 600+ weekly users.\nBus Arrival Predictor (Python, scikit-learn): cut prediction error from 4.1 to 2.3 minutes.",
     color: "sand",
   },
   {
@@ -97,7 +116,48 @@ export const seedPeople: Person[] = [
     color: "peach",
   },
 ];
-export const initialResume = `Alex Kim\nalex.kim@usc.edu | Los Angeles, CA\n\nEDUCATION\nUniversity of Southern California — MS Business Analytics, 2027\n\nEXPERIENCE\nAnalyzed product usage data with SQL and built Tableau dashboards to communicate trends to a project team.\n\nPROJECTS\nBuilt a Python analysis of public transportation data and presented findings in an interactive dashboard.\n\nSKILLS\nSQL, Python, Tableau, Data analysis`;
+export const initialResume = `Alex Kim
+alex.kim@usc.edu · (213) 555-0142 · Los Angeles, CA · linkedin.com/in/alex-kim-demo · github.com/alexkim-demo
+
+SUMMARY
+CS junior at USC Viterbi who likes building reliable backend systems. Interned on a logistics data platform, built a Raft key-value store in Go, and works as a student developer for Viterbi IT.
+
+EDUCATION
+University of Southern California, Viterbi School of Engineering · B.S. · Computer Science · Aug 2023 · May 2027 · 3.72
+Coursework: Operating Systems, Distributed Systems, Database Systems, Algorithms, Computer Networks
+Honors: Dean's List (4 semesters), Viterbi Merit Scholarship
+
+EXPERIENCE
+Ridgeline Logistics · Software Engineering Intern · San Diego, CA · May 2025 · Aug 2025
+Built a Go service that streams shipment status events from Kafka into PostgreSQL, handling about 3M events per day
+Reduced p95 latency of the tracking API from 480 ms to 190 ms by adding Redis caching and removing N+1 queries
+Added OpenTelemetry tracing across 4 services, helping the on-call team find the failing hop in minutes
+Wrote integration tests with Testcontainers, raising routing module coverage from 41% to 78%
+USC Viterbi IT · Student Developer · Los Angeles, CA · Sep 2024 · Present
+Built a Python (FastAPI) service that syncs lab reservations for 1,200+ students across 14 labs
+Cut the nightly sync job from 40 to 12 minutes by batching database writes and parallelizing API calls
+Containerized 3 legacy cron jobs with Docker and moved them to a monitored scheduler
+USC Department of Computer Science · Course Producer, CSCI 104 Data Structures · Los Angeles, CA · Jan 2025 · May 2025
+Ran weekly labs for 30 students on C++ linked lists, heaps, and hash tables
+Held 4 hours of office hours per week and graded 120+ homework submissions with written feedback
+Trojan Robotics Club · Software Lead · Los Angeles, CA · Jan 2024 · Aug 2024
+Led 5 students building ROS 2 navigation for a campus delivery robot, completing 40+ autonomous test runs
+Set up GitHub Actions CI and a code review process, ending a pattern of broken builds on main
+
+PROJECTS
+Distributed Key-Value Store · Go, gRPC, Docker · github.com/alexkim-demo/kv · Jan 2025 · Apr 2025
+Implemented Raft leader election, log replication, and snapshotting across a 5-node cluster
+Built a fault-injection harness for network partitions and node crashes that found 3 leader-election bugs
+Sustained 12k writes per second with linearizable reads on a local 5-node cluster
+TrojanEats · React, TypeScript, Node.js, PostgreSQL · github.com/alexkim-demo/trojaneats · Sep 2024 · Dec 2024
+Web app showing which campus dining halls are open and what they serve; 600+ weekly users in fall 2024
+Designed the PostgreSQL schema and a scheduled scraper that ingests menus from 9 dining halls
+Bus Arrival Predictor · Python, pandas, scikit-learn · github.com/alexkim-demo/metro-eta · Mar 2024 · May 2024
+Trained a gradient-boosted model on 2M public LA Metro GPS records to predict bus arrival delays
+Lowered mean absolute error from 4.1 to 2.3 minutes compared with the schedule-only baseline
+
+SKILLS
+Go, Python, Java, C++, TypeScript, SQL, FastAPI, React, gRPC, Kafka, Redis, PostgreSQL, Docker, Git, Linux, AWS (EC2/S3/RDS), GitHub Actions, OpenTelemetry`;
 export function makeSeed(): BoardState {
   return {
     people: structuredClone(seedPeople),
@@ -259,7 +319,7 @@ export function makeSeed(): BoardState {
         alumniId: "maya",
         jobId: "j5",
         purpose: "referral",
-        note: "Hi Maya! I’m a USC Business Analytics student interested in your Product Data Scientist opening. I’d appreciate the chance to learn more about the team and whether my SQL and Python project experience could be relevant.",
+        note: "Hi Maya! I’m a USC CS junior interested in your Product Data Scientist opening. I built a bus arrival prediction model in Python and work with SQL and Kafka data pipelines in my internship. I’d love to learn whether that background could be relevant for your team.",
         status: "pending",
         resumeSnapshot: initialResume,
         resumeLabel: "My base resume",

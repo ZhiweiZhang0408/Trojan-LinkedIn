@@ -1,22 +1,24 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, Coffee, MapPin, Search, UsersRound } from "lucide-react";
+import { Coffee, MousePointerClick, Search } from "lucide-react";
 import type { Board } from "../useBoard";
 import type { ModalState } from "../types";
-import { Avatar, Button, Empty } from "../components/ui";
-import { errorText } from "../lib/utils";
+import { Avatar, Button, Empty, PaneEmpty, Split } from "../components/ui";
+import { PaneView, inPane, modalKey } from "../components/Dialogs";
+
 export function Connections({
   board: b,
+  modal,
   open,
+  close,
 }: {
   board: Board;
-  open: (m: ModalState) => void;
+  modal: ModalState;
+  open: (m: ModalState, options?: { root?: boolean }) => void;
+  close: () => void;
 }) {
   const [q, setQ] = useState(""),
     [coffee, setCoffee] = useState(false),
     [company, setCompany] = useState("");
-  useEffect(() => {
-    b.loadAlumni().catch((e) => b.notify(errorText(e), true));
-  }, [b.settings.mode]);
   const people = b.state.people.filter(
     (p) => p.role === "alumni" && p.id !== b.user?.id,
   );
@@ -29,25 +31,32 @@ export function Connections({
       (!coffee || p.coffeeChats) &&
       (!company || p.company === company),
   );
+  useEffect(() => {
+    if (
+      !modal &&
+      filtered[0] &&
+      window.matchMedia("(min-width: 901px)").matches
+    )
+      open({ type: "person", person: filtered[0] }, { root: true });
+  }, []);
+  const selectedId =
+    modal?.type === "person" || modal?.type === "connect"
+      ? modal.person.id
+      : modal?.type === "thread"
+        ? modal.request.alumniId
+        : undefined;
   return (
     <>
-      <section className="page-hero compact">
+      <section className="workspace-header">
         <div>
-          <p className="eyebrow">
-            <span /> A SHARED CONNECTION
-          </p>
-          <h1>
-            Good conversations.
-            <br />
-            <span>Great places to start.</span>
-          </h1>
-          <p className="hero-description">
-            Meet alumni who are open to sharing what they’ve learned.
-          </p>
+          <h1>Connections</h1>
+          <span className="count-pill">{filtered.length}</span>
         </div>
-        <div className="hero-symbol">
-          <UsersRound size={40} strokeWidth={1.2} />
-        </div>
+        {b.user?.role === "alumni" && b.settings.mode === "demo" && (
+          <Button variant="secondary" onClick={() => open({ type: "profile" })}>
+            Edit availability
+          </Button>
+        )}
       </section>
       <div className="directory-toolbar">
         <div className="search-bar">
@@ -77,106 +86,87 @@ export function Connections({
             checked={coffee}
             onChange={(e) => setCoffee(e.target.checked)}
           />
-          <Coffee size={17} />
-          Open to coffee chats
+          <Coffee size={16} />
+          Coffee chats
         </label>
       </div>
-      {b.user?.role === "alumni" && (
-        <div className="availability-banner">
-          <div>
-            <strong>Your time, your terms.</strong>
-            <span>Let students know how you’d like to connect.</span>
-          </div>
-          <Button variant="secondary" onClick={() => open({ type: "profile" })}>
-            Edit availability
-            <ArrowRight size={15} />
-          </Button>
-        </div>
-      )}
-      <div className="results-heading">
-        <span>{filtered.length} alumni to get to know</span>
-        <span>USC community</span>
-      </div>
-      <div className="people-grid">
-        {filtered.map((p) => {
-          const request = b.state.requests.find(
-            (r) =>
-              r.kind === "connection" &&
-              r.studentId === b.user?.id &&
-              r.alumniId === p.id,
-          );
-          return (
-            <article className="person-card" key={p.id}>
-              <div className="person-card-top">
-                <Avatar person={p} size="lg" />
-                {p.coffeeChats && (
-                  <span className="coffee-tag">
-                    <Coffee size={13} />
-                    Coffee chats
-                  </span>
-                )}
-              </div>
-              <h2>{p.name}</h2>
-              <p className="person-position">
-                {p.title} <span>at</span> {p.company}
-              </p>
-              <p className="person-school">
-                {p.program} · USC ’{String(p.year).slice(-2)}
-              </p>
-              <p className="person-location">
-                <MapPin size={13} />
-                {p.location || "Location not listed"}
-              </p>
-              <p className="person-bio">
-                {p.bio ||
-                  "Open their profile to learn more about their background."}
-              </p>
-              <div className="tags">
-                {p.skills.slice(0, 3).map((s) => (
-                  <span className="tag" key={s}>
-                    {s}
-                  </span>
-                ))}
-              </div>
-              <div className="person-card-bottom">
-                <span
-                  className={`availability ${p.openToConnect ? "available" : ""}`}
-                >
-                  <span />
-                  {p.openToConnect
-                    ? "Open to connecting"
-                    : "Not taking requests"}
-                </span>
+      <Split
+        paneKey={modal ? modalKey(modal) : undefined}
+        pane={
+          inPane(modal) ? (
+            <PaneView board={b} modal={modal} open={open} close={close} />
+          ) : null
+        }
+        empty={
+          <PaneEmpty
+            icon={<MousePointerClick size={22} />}
+            title="Select an alum"
+          />
+        }
+        list={
+          <div className="row-list">
+            {filtered.map((p) => {
+              const active = p.id === selectedId;
+              return (
                 <button
-                  className="text-link"
-                  onClick={() => open({ type: "person", person: p })}
+                  key={p.id}
+                  className={`list-row ${active ? "active" : ""}`}
+                  aria-current={active || undefined}
+                  onClick={() => open({ type: "person", person: p }, { root: true })}
                 >
-                  {request ? "View connection" : "View profile"}
-                  <ArrowRight size={15} />
+                  <Avatar person={p} />
+                  <span className="list-row-main">
+                    <span className="list-row-top">
+                      <strong>{p.name}</strong>
+                      {p.coffeeChats && (
+                        <Coffee
+                          size={14}
+                          className="row-icon"
+                          aria-label="Open to coffee chats"
+                        />
+                      )}
+                    </span>
+                    <span className="list-row-sub">
+                      {p.title} · {p.company}
+                    </span>
+                    <span className="list-row-meta">
+                      <span
+                        className={`availability ${p.openToConnect ? "available" : ""}`}
+                      >
+                        <span />
+                        {p.openToConnect ? "Open" : "Unavailable"}
+                      </span>
+                      {p.skills.slice(0, 2).map((s) => (
+                        <span className="mini-tag" key={s}>
+                          {s}
+                        </span>
+                      ))}
+                    </span>
+                  </span>
                 </button>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-      {!filtered.length && (
-        <Empty
-          title="Let’s try a different connection."
-          description="Search another company or expertise, or reset your filters."
-          action={
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setQ("");
-                setCoffee(false);
-                setCompany("");
-              }}
-            >
-              Reset filters
-            </Button>
-          }
-        />
-      )}
+              );
+            })}
+            {!filtered.length && (
+              <Empty
+                title="No matching alumni"
+                description="Search another company or expertise, or reset your filters."
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setQ("");
+                      setCoffee(false);
+                      setCompany("");
+                    }}
+                  >
+                    Reset filters
+                  </Button>
+                }
+              />
+            )}
+          </div>
+        }
+      />
     </>
   );
 }

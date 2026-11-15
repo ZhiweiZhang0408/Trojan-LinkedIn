@@ -118,9 +118,19 @@ export interface Suggestion {
   original: string;
   suggested: string;
   reason: string;
+  requirement?: string;
+}
+export interface TailorResult {
+  suggestions: Suggestion[];
+  additions: string[];
+  emphasize: string[];
+  questions: string[];
 }
 export interface ImportResult {
   text: string;
+  importId?: string;
+  sourceText?: string;
+  content?: ResumeContent;
   fileName: string;
   fileData?: string;
   name?: string;
