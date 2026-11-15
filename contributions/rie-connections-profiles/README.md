@@ -4,6 +4,8 @@ A self-contained reference implementation of TrojanLink's **Connections** and **
 
 > **This folder is isolated.** Nothing outside `contributions/rie-connections-profiles/` was changed, and the team app in `backend/` and `frontend/` doesn't import anything from here. It runs as its own small app, with its own demo login and fictional data, so teammates can try every endpoint. Integration into the team modules happens later through normal Pull Requests (see [Integration guidance](#integration-guidance)).
 
+**Backend only.** This contribution contains no frontend code; the team frontend in `frontend/` is the only UI. Some files in `docs/` still describe a reference demo UI and browser test from the original standalone project (`Applepan55/trojanlink-claude`); those are not part of this folder.
+
 Built independently with Claude (Claude Code) and mirrored from `Applepan55/trojanlink-claude`, commit `31f60dc`. All people, companies, emails and resumes in the demo data are fictional; accounts are not USC-verified.
 
 ## What's inside
@@ -17,7 +19,7 @@ Built independently with Claude (Claude Code) and mirrored from `Applepan55/troj
 | Privacy settings | Search visibility, email sharing, resume visibility |
 | Resume (reference only) | Basic PDF upload/view/remove with visibility. The team's `/resumes` module remains the real resume system |
 | AI (no API key needed) | Deterministic alumni recommendations with explanations; template introduction drafts |
-| Quality | 84 backend tests (98% line coverage); browser test script `frontend/e2e/demo-journey.mjs` |
+| Quality | 84 backend tests (98% line coverage) |
 
 Not included, by team decision: AI Resume Tailoring, Job Posts, seminars and video features.
 
@@ -32,7 +34,6 @@ contributions/rie-connections-profiles/
 │   │   ├── services/         presenters (privacy rules), recommendation, taxonomy, resumes, seed
 │   │   └── security/         demo login: JWT + scrypt*
 │   └── tests/                84 pytest tests
-├── frontend/                 React + TypeScript + Tailwind demo UI (reference only)
 └── docs/                     API reference, compatibility matrix, integration guide, ...
 ```
 
@@ -40,23 +41,16 @@ contributions/rie-connections-profiles/
 
 ## Run it (standalone, optional)
 
-Requirements: Python 3.11+, Node 20+. Run everything from **inside this folder**; it uses its own database and ports.
+Requirements: Python 3.11+. Run everything from **inside this folder**; it uses its own database and ports.
 
 ```bash
 cd contributions/rie-connections-profiles/backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env                 # set SECRET_KEY, and CORS_ORIGINS=http://localhost:5174
-                                     # (demo password defaults to trojan-demo-2026)
+cp .env.example .env                 # set SECRET_KEY (demo password defaults to trojan-demo-2026)
 python -m app.seed --reset           # fictional demo data
 uvicorn app.main:app --port 8001     # 8001 so it doesn't clash with the team backend on 8000
 pytest                               # 84 tests
-```
-
-```bash
-cd contributions/rie-connections-profiles/frontend
-cp .env.example .env.local           # set VITE_API_BASE_URL=http://localhost:8001
-npm install && npm run dev -- --port 5174
 ```
 
 Demo accounts: `alex.chen@student.example.com` (student) and `sarah.kim@alumni.example.com` (alum), with the password from `DEMO_USER_PASSWORD`. Swagger: <http://localhost:8001/docs>.
