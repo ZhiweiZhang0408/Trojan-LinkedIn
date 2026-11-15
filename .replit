@@ -1,6 +1,9 @@
 modules = ["python-3.12", "nodejs-22"]
 run = "bash scripts/replit-build.sh && bash scripts/replit-start.sh"
 
+[nix]
+channel = "stable-25_05"
+
 [deployment]
 deploymentTarget = "gce"
 build = ["bash", "scripts/replit-build.sh"]
@@ -9,3 +12,25 @@ run = ["bash", "scripts/replit-start.sh"]
 [[ports]]
 localPort = 8000
 externalPort = 80
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/replit-build.sh && bash scripts/replit-start.sh"
+waitForPort = 8000

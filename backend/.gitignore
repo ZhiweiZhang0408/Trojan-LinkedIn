@@ -5,3 +5,4 @@ uploads/
 .pytest_cache/
 .env
 .secret_key
+.seed_stamp
