@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: trojanlink
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
