@@ -24,6 +24,8 @@ export interface CodeResponse {
   email: string;
   dev_code?: string | null;
 }
+// AI calls can take up to the backend's AI_TIMEOUT_SECONDS (90 s by default).
+const REQUEST_TIMEOUT_MS = 95000;
 export class ApiClient {
   constructor(private settings: Settings) {}
   async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -38,8 +40,8 @@ export class ApiClient {
         ...options,
         headers,
         signal: options.signal
-          ? AbortSignal.any([options.signal, AbortSignal.timeout(30000)])
-          : AbortSignal.timeout(30000),
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (error) {
       if (options.signal?.aborted) throw error;

@@ -51,8 +51,13 @@ const empty: BoardState = {
 const sessionKey = "trojan-board-session";
 const sampleKey = "trojan-board-sample-user";
 
+// A hosted build (VITE_HOSTED=true) is served by the backend itself, so it talks
+// to its own origin and starts connected instead of in sample mode.
+const hosted = import.meta.env.VITE_HOSTED === "true";
 function initialSettings(): Settings {
-  let apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  let apiUrl =
+    import.meta.env.VITE_API_BASE_URL ||
+    (hosted ? window.location.origin : "http://localhost:8000");
   try {
     apiUrl = localStorage.getItem("trojan-api-url") || apiUrl;
     const saved = JSON.parse(
@@ -62,7 +67,7 @@ function initialSettings(): Settings {
   } catch {
     /* Browser settings are optional. */
   }
-  return { mode: "demo", apiUrl };
+  return { mode: hosted ? "api" : "demo", apiUrl };
 }
 export function useBoard() {
   const [demo, setDemo] = useState<BoardState>(makeSeed);

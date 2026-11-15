@@ -1,0 +1,11 @@
+modules = ["python-3.12", "nodejs-22"]
+run = "bash scripts/replit-build.sh && bash scripts/replit-start.sh"
+
+[deployment]
+deploymentTarget = "gce"
+build = ["bash", "scripts/replit-build.sh"]
+run = ["bash", "scripts/replit-start.sh"]
+
+[[ports]]
+localPort = 8000
+externalPort = 80

@@ -7,6 +7,7 @@ import type { Role } from "../types";
 import type { Board } from "../useBoard";
 
 export type AuthPage = "signin" | "signup" | "verify";
+const demoPassword = import.meta.env.VITE_DEMO_PASSWORD || "";
 
 export function Auth({
   board,
@@ -267,14 +268,34 @@ export function Auth({
         </div>
         {page === "signin" && (
           <div className="sample-accounts">
-            <span className="sample-divider">Sample accounts</span>
+            <span className="sample-divider">
+              {board.settings.mode === "api" && demoPassword
+                ? "Demo accounts"
+                : "Sample accounts"}
+            </span>
             {seedPeople
               .filter((p) => ["alex", "maya", "jordan"].includes(p.id))
               .map((p) => (
                 <button
                   key={p.id}
                   className="sample-account"
-                  onClick={() => {
+                  disabled={busy !== null}
+                  onClick={async () => {
+                    // Connected demo deployments sign in to the seeded backend
+                    // accounts; otherwise use the in-browser sample data.
+                    if (board.settings.mode === "api" && demoPassword) {
+                      setBusy("submit");
+                      setError("");
+                      try {
+                        await board.login(p.email, demoPassword);
+                        onSuccess();
+                      } catch (e) {
+                        setError(errorText(e));
+                      } finally {
+                        setBusy(null);
+                      }
+                      return;
+                    }
                     board.signInSample(p.id);
                     onSuccess();
                   }}
